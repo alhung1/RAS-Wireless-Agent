@@ -1,0 +1,85 @@
+<#
+.SYNOPSIS
+    Paste this ENTIRE script into an ADMIN PowerShell on orchestrator 192.168.22.100.
+    It downloads the project, installs deps + Playwright, and runs a smoke test.
+#>
+$ErrorActionPreference = "Stop"
+$installDir = "C:\RASAgent"
+$sourceUrl = "http://192.168.22.8:9999/RASAgent_deploy.zip"
+$zipPath = "$env:TEMP\RASAgent_deploy.zip"
+
+Write-Host "=== Orchestrator Deploy (192.168.22.100) ===" -ForegroundColor Cyan
+
+# Download
+Write-Host "[1/7] Downloading project..."
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest -Uri $sourceUrl -OutFile $zipPath -UseBasicParsing
+
+# Extract
+Write-Host "[2/7] Extracting to $installDir..."
+if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
+New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
+Remove-Item $zipPath -Force
+
+# Python check
+Write-Host "[3/7] Checking Python..."
+$py = $null
+foreach ($cmd in @("python", "py")) {
+    try {
+        $v = & $cmd --version 2>&1
+        if ($v -match "(\d+)\.(\d+)" -and [int]$Matches[1] -ge 3 -and [int]$Matches[2] -ge 10) {
+            $py = $cmd; Write-Host "  Found: $v"; break
+        }
+    } catch {}
+}
+if (-not $py) { Write-Host "[ERROR] Python 3.10+ required!" -ForegroundColor Red; exit 1 }
+
+# Venv + deps
+Write-Host "[4/7] Creating venv and installing dependencies..."
+Set-Location $installDir
+if (-not (Test-Path ".venv")) { & $py -m venv .venv }
+. .\.venv\Scripts\Activate.ps1
+pip install -q -r requirements.txt
+
+# Playwright
+Write-Host "[5/7] Installing Playwright Chromium..."
+playwright install chromium
+
+# Connectivity check
+Write-Host "[6/7] Connectivity checks..."
+$ok = $true
+if (Test-Connection 192.168.1.1 -Count 1 -Quiet) {
+    Write-Host "  [OK] Router 192.168.1.1 reachable" -ForegroundColor Green
+} else {
+    Write-Host "  [FAIL] Router 192.168.1.1 NOT reachable!" -ForegroundColor Red
+    $ok = $false
+}
+try {
+    $r = Invoke-RestMethod -Uri "http://192.168.22.203:8080/wifi/status" -TimeoutSec 5
+    Write-Host "  [OK] Worker API at 192.168.22.203:8080 responding" -ForegroundColor Green
+} catch {
+    Write-Host "  [WARN] Worker API not responding. Start worker on .203 first." -ForegroundColor Yellow
+}
+
+# Smoke test
+Write-Host "[7/7] Running router SSID check..."
+if ($ok) {
+    python scripts/check_ssid.py
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Setup complete!                       " -ForegroundColor Cyan
+Write-Host "                                        "
+Write-Host "  Run E2E test (5G band):               "
+Write-Host '  python scripts/run_e2e_lab.py `       '
+Write-Host '    --workflow workflows/test_2pc.yaml ` '
+Write-Host '    --connect-band 5G `                  '
+Write-Host '    --scan-ssid RFLabTest_5G             '
+Write-Host ""
+Write-Host "  Run full sweep (all bands):            "
+Write-Host '  python scripts/run_sweep_lab.py `      '
+Write-Host '    --workflow workflows/test_2pc_sweep.yaml `'
+Write-Host '    --continue-on-failure                '
+Write-Host "========================================" -ForegroundColor Cyan

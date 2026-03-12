@@ -1,0 +1,53 @@
+name: "2-PC E2E: Router Control + Single Worker Wi-Fi Connect"
+description: >
+  Basic E2E validation with 2 machines:
+    1) Orchestrator calls router-control service on 22.100 to configure router
+    2) Worker (192.168.22.203 / Intel BE200) scans, connects, and pings gateway
+  Run with --connect-band and --scan-ssid to select which band to test.
+  Default: 5G band.
+
+router:
+  base_url: http://192.168.1.1
+  router_control_url: http://192.168.22.100:8081
+  bands:
+    "2.4G":
+      ssid: RFLabTest_2G
+      password: password
+      channel: "6"
+      security: wpa2
+    "5G":
+      ssid: RFLabTest_5G
+      password: password
+      channel: "36"
+      security: wpa2
+    "6G":
+      ssid: RFLabTest_6G
+      password: password
+      channel: "37"
+      security: wpa3
+
+workers:
+  - url: "http://192.168.22.203:8080"
+    name: worker-203
+
+steps:
+  - action: router_apply
+    description: "Set per-band SSID/password/channel on Netgear Nighthawk"
+
+  - action: wait_ssid_broadcast
+    description: "Poll worker scan until target SSID is visible"
+    scan:
+      target_ssid: RFLabTest_5G
+      timeout_sec: 120
+      poll_interval_sec: 10
+
+  - action: wifi_connect_workers
+    description: "Connect worker to the target band"
+    connect_band: "5G"
+
+  - action: ping_gate
+    description: "Worker pings router gateway to verify Wi-Fi connectivity"
+    ping_gate:
+      host: "192.168.1.1"
+      count: 4
+      timeout_sec: 10

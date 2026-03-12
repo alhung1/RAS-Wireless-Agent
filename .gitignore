@@ -1,0 +1,16 @@
+artifacts/
+.env
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.cursor/
+offline_packages/
+RASAgent_deploy.zip
+build_info.json
+*.har
+*.zip
