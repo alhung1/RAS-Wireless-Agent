@@ -29,12 +29,27 @@ _jobs_lock = threading.Lock()
 # Request / Response models
 # ---------------------------------------------------------------------------
 
+SECURITY_MAP = {
+    "wpa2": ("WPA2PSK", "AES"),
+    "wpa2-personal": ("WPA2PSK", "AES"),
+    "wpa3": ("WPA3SAE", "AES"),
+    "wpa3-personal": ("WPA3SAE", "AES"),
+    "auto": ("WPA2PSK", "AES"),
+    "open": ("open", "none"),
+}
+
+
 class ConnectRequest(BaseModel):
     ssid: str
     password: str
     interface: Optional[str] = None
     auth: str = "WPA2PSK"
     cipher: str = "AES"
+    adapter_hint: Optional[str] = None
+    security: Optional[str] = None
+    band: Optional[str] = None
+    static_ip: Optional[str] = None
+    mask: str = "255.255.255.0"
 
 
 class WifiResponse(BaseModel):
@@ -88,7 +103,16 @@ class AutomationStatusResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Wi-Fi endpoints (existing)
+# Health endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "worker"}
+
+
+# ---------------------------------------------------------------------------
+# Wi-Fi endpoints
 # ---------------------------------------------------------------------------
 
 @app.post("/wifi/connect", response_model=WifiResponse)
@@ -96,8 +120,29 @@ def wifi_connect(req: ConnectRequest):
     timings: dict = {}
     t0 = time.monotonic()
 
+    # Resolve adapter_hint -> interface name
+    iface = req.interface
+    if not iface and req.adapter_hint:
+        iface = netsh.resolve_interface_by_hint(req.adapter_hint)
+        if not iface:
+            return WifiResponse(
+                success=False,
+                step="resolve_adapter",
+                error=f"No WLAN interface found matching adapter_hint={req.adapter_hint!r}",
+                error_code=-1,
+                timings=timings,
+            )
+
+    # Resolve security shorthand -> auth/cipher
+    auth, cipher = req.auth, req.cipher
+    if req.security:
+        mapped = SECURITY_MAP.get(req.security.lower())
+        if mapped:
+            auth, cipher = mapped
+
     logger.info(
-        "Connect request: ssid=%s", req.ssid,
+        "Connect request: ssid=%s iface=%s adapter_hint=%s static_ip=%s",
+        req.ssid, iface, req.adapter_hint, req.static_ip,
         extra={"action": "wifi_connect", "step": "start"},
     )
 
@@ -107,9 +152,9 @@ def wifi_connect(req: ConnectRequest):
             netsh.add_profile,
             req.ssid,
             req.password,
-            interface=req.interface,
-            auth=req.auth,
-            cipher=req.cipher,
+            interface=iface,
+            auth=auth,
+            cipher=cipher,
             max_retries=2,
             backoff=1.0,
             timeout=15.0,
@@ -130,7 +175,7 @@ def wifi_connect(req: ConnectRequest):
         connect_result = retry_sync(
             netsh.connect,
             req.ssid,
-            interface=req.interface,
+            interface=iface,
             max_retries=3,
             backoff=2.0,
             timeout=30.0,
@@ -147,9 +192,30 @@ def wifi_connect(req: ConnectRequest):
                 error="Failed to connect to Wi-Fi",
             )
 
+        # Set static IP if requested
+        if req.static_ip and iface:
+            time.sleep(2)
+            t_ip = time.monotonic()
+            ip_result = netsh.set_static_ip(iface, req.static_ip, req.mask)
+            timings["set_static_ip"] = round(time.monotonic() - t_ip, 3)
+            if not ip_result["success"]:
+                logger.warning(
+                    "Static IP set failed: %s", ip_result["stderr"],
+                    extra={"action": "wifi_connect", "step": "static_ip_warn"},
+                )
+
         t_verify = time.monotonic()
-        verification = verify.verify_connection(req.ssid, interface=req.interface)
+        verification = verify.verify_connection(req.ssid, interface=iface)
         timings["verify"] = round(time.monotonic() - t_verify, 3)
+
+        # Append extra detail (RSSI, BSSID) if available
+        if iface:
+            detail = netsh.get_interface_detail(iface)
+            if detail:
+                verification["rssi"] = detail.get("signal", detail.get("訊號"))
+                verification["bssid"] = detail.get("bssid")
+                verification["interface_name"] = iface
+
         timings["total"] = round(time.monotonic() - t0, 3)
 
         return WifiResponse(

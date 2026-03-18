@@ -9,6 +9,10 @@ dist/
 build/
 .pytest_cache/
 .cursor/
+!.cursor/skills/
+!.cursor/skills/**
+!.cursor/rules/
+!.cursor/rules/**
 offline_packages/
 RASAgent_deploy.zip
 build_info.json

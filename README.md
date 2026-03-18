@@ -1,31 +1,68 @@
 # RAS Wireless Agent
 
-Automate Wi-Fi SSID, password, channel, and security changes on a **Netgear RS700**
-tri-band router (2.4 GHz / 5 GHz / 6 GHz) and verify connectivity from remote
-Windows worker PCs.  The orchestrator machine never touches the router subnet
-directly -- all router operations are proxied through a FastAPI service running
-on a relay PC (22.100) that has wired LAN access to the router.
+Automate end-to-end Wi-Fi throughput testing on a **Netgear RS700** tri-band router
+(2.4 GHz / 5 GHz / 6 GHz) across three coordinated machines:
+
+1. **Router GUI control** (22.100) -- Playwright-based SSID/channel/security configuration
+2. **LabVIEW automation** (22.8) -- PyAutoGUI-driven 18-step throughput wizard
+3. **WiFi client control** (22.203) -- `netsh wlan` based Intel BE200 connection management
+
+---
+
+## Quick Start (2.4G Test)
+
+```powershell
+cd "c:\Projects\RAS Wireless Agent"
+.\.venv\Scripts\Activate.ps1
+
+# Run the 18-step LabVIEW wizard and start a 2.4G throughput test
+python scripts/run_24g.py
+```
+
+This launches LabVIEW `480.000.v2.03.exe`, walks through all 18 wizard steps
+(login, AP/client selection, band/mode/attenuation config), and starts the test.
+The finish detector monitors `D:\480\LOG\RBU\*.pdf` for test completion.
 
 ---
 
 ## Architecture
 
 ```
-Orchestrator PC                    22.100 PC                       Router (192.168.1.1)
-  (local machine)                    router_service :8081             Netgear RS700
-  NIC-1 (200-domain, internet)       22-domain NIC (mgmt)            LAN: 192.168.1.x
-  NIC-2 (22-domain, control) ------> Router NIC (192.168.1.50)       Wi-Fi: 2.4G / 5G / 6G
-                                      worker service  :8080
+ 22.8 (Orchestrator)          22.100 (Router Relay)         22.203 (WiFi Worker)
+ ┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
+ │  Orchestrator     │  HTTP   │  Router Service   │  PW    │  Worker Service   │
+ │  LabVIEW Runner   │───────>│  :8081             │──────>│  :8080             │
+ │  Finish Detector  │         │  Playwright driver │        │  netsh wlan       │
+ └────────┬─────────┘         └────────┬─────────┘         └────────┬─────────┘
+          │ PyAutoGUI                  │ Web UI                     │ WiFi
+          v                            v                            v
+   LabVIEW 480.exe              Netgear RS700              Intel BE200 adapter
+                               (192.168.1.1)
 ```
 
-**Data flow:**
+### Data Flow
 
 ```
                     HTTP (22-domain)                  Playwright (LAN)
   Orchestrator  ──────────────────>  router_service  ──────────────>  Router GUI
-  (scripts/)         POST /router/apply              (Chromium headless)
-                     GET  /router/status             WLG_wireless_tri_band.htm
+  (22.8)             POST /router/apply              (22.100)
+
+  Orchestrator  ──────────────────>  worker          ──────────────>  Intel BE200
+  (22.8)             POST /wifi/connect              (22.203)        netsh wlan
+
+  Orchestrator  ──── PyAutoGUI ────>  LabVIEW 480.000.v2.03.exe     (local on 22.8)
 ```
+
+### End-to-End Test Sequence
+
+| Phase | Machine | Action |
+|-------|---------|--------|
+| 1 | 22.100 | Configure router (SSID, channel, security) via Playwright |
+| 2 | 22.8 | Run LabVIEW wizard steps 0-16 |
+| 3 | 22.203 | Connect Intel BE200 to test frequency band via `netsh wlan` |
+| 4 | 22.8 | Complete LabVIEW wizard steps 17-18, test begins |
+| 5 | 22.8 | Monitor for test completion (PDF in `D:\480\LOG\RBU`) |
+| 6 | -- | Repeat for next band/channel |
 
 ### 5-Layer Network Safety
 
@@ -37,497 +74,93 @@ Orchestrator PC                    22.100 PC                       Router (192.1
 
 ---
 
-## A. Network Requirements (Strict)
+## LabVIEW Automation (Part 2 -- 22.8)
 
-### Orchestrator Machine
+The LabVIEW runner drives `480.000.v2.03.exe` through an 18-step throughput testing
+wizard using PyAutoGUI, Win32 API, and OpenCV HSV color detection.
 
-- **NIC-1 (Internet / 200-domain):** Default gateway, metric 10
-- **NIC-2 (22-domain control):** IP in 192.168.22.0/24, metric 20, **no route to 192.168.1.0/24**
+### 18-Step Wizard Flow
 
-**Critical rule:** The orchestrator must NOT have any route to `192.168.1.0/24`.
-All 192.168.1.x traffic must go through the router-control service HTTP API.
+| Step | Function | Screen | Action | ~Time |
+|------|----------|--------|--------|-------|
+| 0 | `step_00_attach` | `480 000.vi` | Find and attach to LabVIEW window | 1s |
+| 1 | `step_01_click_throughput` | `480 000.vi` | Click Throughput Testing icon | 10s |
+| 2 | `step_02_login` | login popup | Type username/password, click green OK | 10s |
+| 3 | `step_03_test_type` | test type screen | Select "1 rpm (fast)", click arrow | 10s |
+| 4 | `step_04_table_position` | table screen | Click orange arrow | 12s |
+| 5 | `step_05_freq_channel` | freq/channel screen | Set MLO, RF channels, user info | 32s |
+| 6 | `step_06_select_ap` | AP screen | Select RS700 from listbox via Home+Down(N) | 30s |
+| 7 | `step_07_use_last_ap` | AP screen | Fill firmware, click Use Last toggle, arrow | 22s |
+| 8 | `step_08_select_client` | STN screen | Select INTEL_BE200 from listbox | 12s |
+| 9 | `step_09_dut_ip` | DUT screen | Click orange arrow (pass-through) | 12s |
+| 10 | `step_10_use_last_dut` | DUT screen | Click Use Last toggle, arrow | 19s |
+| 11 | `step_11_band_select` | IP Dual LAN screen | Click "1", set 2G/5G dropdowns to "3" | 26s |
+| 12 | `step_12_chariot_pairs` | Chariot pairs screen | Type number of pairs | 13s |
+| 13 | `step_13_pass_through` | angle screen | Click orange arrow | 12s |
+| 14 | `step_14_mode` | MODE screen | Select BW20 | 17s |
+| 15 | `step_15_attenuation` | atten screen | Set start/step/steps | 16s |
+| 16 | `step_16_design_stage` | Chariot screen | Select "Beta" | 22s |
+| 17 | `step_17_region` | REGION screen | Select "US" | 19s |
+| 18 | `step_18_final_start` | review screen | Click arrow to start test | 13s |
 
-### Worker Machine (22.100)
+Total wizard time: ~4.5 minutes.
 
-- **22-domain NIC:** IP in 192.168.22.0/24, metric 10 (management traffic)
-- **Router NIC:** Static IP `192.168.1.50`, mask `255.255.255.0`, **no default gateway**, metric 100
+### Default Configuration (2.4G Test)
 
-### Prechecks
+| Parameter | Value |
+|-----------|-------|
+| exe_path | `C:\480.builds\v2.03\480.000.v2.03.exe` |
+| ap_name | RS700 |
+| client_name | INTEL_BE200 |
+| freq_range | MLO |
+| band | 2.4G |
+| RF channels | 2G=10, 5G=44, 6G=69 |
+| mode | BW20 |
+| number_of_pairs | 8 |
+| start_atten / step_size / steps | 0 / 3 / 30 |
+| design_stage | Beta |
+| region | US |
 
-```powershell
-# Orchestrator: verify no route to router subnet
-route print | Select-String "192.168.1"
-# Expected: EMPTY (no entries)
+### Key Techniques
 
-# Orchestrator: verify 22-domain metrics
-Get-NetIPInterface -AddressFamily IPv4 | Sort InterfaceMetric |
-  Format-Table InterfaceAlias, InterfaceMetric, AutomaticMetric
+- **Listbox selection:** `Home + Down(N)` via folder-index lookup (`E:\AP`, `E:\Client`)
+- **Orange arrow detection:** HSV color matching with fallback to fixed coordinates
+- **Popup management:** Auto-minimize `480_214.vi`, `500 Information window`, `2512 display status`
+- **IME handling:** Force English input via `ActivateKeyboardLayout(0x04090409, 0)`
+- **Dropdown modal fix:** Escape + neutral click before orange arrow to close lingering dropdowns
 
-# Orchestrator: verify control path to worker
-Test-NetConnection 192.168.22.100 -Port 8081
-# Expected: TcpTestSucceeded = True
+### Resolved Issues (v1)
 
-# Worker (22.100): verify router reachable
-Test-NetConnection 192.168.1.1 -Port 80
-# Expected: TcpTestSucceeded = True
-
-# Worker (22.100): verify metrics
-Get-NetIPInterface -AddressFamily IPv4 | Sort InterfaceMetric |
-  Format-Table InterfaceAlias, InterfaceMetric, AutomaticMetric
-```
-
----
-
-## B. System Health Checklist
-
-Quick verification commands and expected outputs:
-
-```powershell
-# 1. Service health
-Invoke-RestMethod http://192.168.22.100:8081/health
-# Expected: {"status":"ok","router_reachable":true}
-
-# 2. TCP connectivity
-Test-NetConnection 192.168.22.100 -Port 8081
-# Expected: TcpTestSucceeded = True
-
-# 3. Router status (all 3 bands)
-Invoke-RestMethod http://192.168.22.100:8081/router/status
-# Expected: {"success":true,"bands":{"2.4G":{...},"5G":{...},"6G":{...}}}
-
-# 4. Service version
-Invoke-RestMethod http://192.168.22.100:8081/admin/version
-# Expected: {"version":"1.1.0","commit":"abc1234","python":"3.14.0","service_mode":"lab","bind_ip":"..."}
-
-# 5. Route sanity (orchestrator)
-route print | Select-String "192.168.1"
-# Expected: EMPTY
-
-# 6. Metric sanity (worker)
-Get-NetIPInterface -AddressFamily IPv4 |
-  Where-Object { $_.ConnectionState -eq "Connected" } |
-  Sort InterfaceMetric |
-  Format-Table InterfaceAlias, InterfaceIndex, InterfaceMetric, AutomaticMetric
-# Expected: all AutomaticMetric = Disabled, 22-domain < router NIC
-```
+| # | Issue | Solution |
+|---|-------|----------|
+| 1 | AP/Client listbox unreliable | Home+Down(N) with folder-index matching |
+| 2 | Chinese IME garbled text | `_force_english_ime()` before every type |
+| 3 | `480_214.vi` popup blocker | Auto-minimize in `_dismiss_lv_popups()` |
+| 4 | Firmware rev field garbled | Direct typing instead of copy/paste |
+| 5 | Use Last AP toggle wrong coords | Pixel analysis: (700, 229) |
+| 6 | Client popup not opening | Pixel analysis: USB image at (100, 348) |
+| 7 | Use Last DUT toggle wrong coords | Pixel analysis: (1060, 895) |
+| 8 | Step 11 band select failures | Full pixel scan, Escape+neutral before arrow |
+| 9 | OCR strict verification fail | Set `strict=False` (pytesseract unavailable) |
+| 10 | PyAutoGUI failsafe trigger | Bounds checking in `_safe_click` |
 
 ---
 
-## C. Security Model
-
-### Credentials
-
-- All secrets are stored in `.env` (never committed, listed in `.gitignore`)
-- `.env.example` provides placeholder keys
-- Required variables: `ROUTER_USER`, `ROUTER_PASS`, `SERVICE_BIND_IP`, `SERVICE_MODE`
-
-### Binding Restrictions
-
-The service bind IP is enforced at two levels:
-
-1. **Primary (uvicorn CLI):** The scheduled task starts uvicorn with `--host %SERVICE_BIND_IP%`.
-   Configured in `scripts/bootstrap_22100.ps1` and `scripts/setup_22100_autostart.ps1`.
-2. **Secondary (FastAPI startup):** `router_service/app.py` validates `SERVICE_BIND_IP` on startup.
-   In `production` mode, `0.0.0.0` is rejected. In `lab` mode (default), a warning is logged.
-
-To change the bind IP: update `SERVICE_BIND_IP` in `C:\RASAgent\.env` and re-register the scheduled task
-via `scripts/setup_22100_autostart.ps1`.
-
-### WinRM / TrustedHosts
-
-WinRM is NOT used for day-to-day operations. All communication is HTTP via `/admin/update`.
-If WinRM is needed for debugging:
-
-```powershell
-# On orchestrator (restrict scope)
-Set-Item WSMan:\localhost\Client\TrustedHosts -Value "192.168.22.100"
-```
-
-### Recommended Firewall Rules (Lab)
-
-```powershell
-# On worker: restrict WinRM to 22-domain only
-New-NetFirewallRule -DisplayName "WINRM-HTTP-In-TCP-22" `
-    -Direction Inbound -Protocol TCP -LocalPort 5985 `
-    -RemoteAddress 192.168.22.0/24 -Action Allow
-
-# On worker: restrict router-service to 22-domain only
-New-NetFirewallRule -DisplayName "RASAgent-Router-Service" `
-    -Direction Inbound -Protocol TCP -LocalPort 8081 `
-    -RemoteAddress 192.168.22.0/24 -Action Allow
-```
-
-### Service Account
-
-The scheduled task runs as `SYSTEM`. For production, consider creating a dedicated
-low-privilege service account with access only to `C:\RASAgent` and the router NIC.
-
----
-
-## D. Deploying to Additional Workers
-
-### What Is Per-Worker
-
-- `C:\RASAgent\.env` -- router credentials and `SERVICE_BIND_IP`
-- NIC configuration (static IP, gateway, metrics)
-- Scheduled task registration
-
-### What Is Shared
-
-- The deploy zip (`RASAgent_deploy.zip`) is identical for all workers
-- `offline_packages/` wheels are architecture-specific (all workers must match OS/arch)
-
-### Steps for a New Worker
-
-1. **On the orchestrator**, build the zip and start file server:
-
-```powershell
-python scripts/deploy_and_restart.py --zip-only
-python -m http.server 9999 --bind 0.0.0.0
-```
-
-2. **On the new worker** (elevated PowerShell):
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force
-iwr http://192.168.22.8:9999/scripts/bootstrap_22100.ps1 -OutFile $env:TEMP\bootstrap.ps1
-& $env:TEMP\bootstrap.ps1 -SourceBase http://192.168.22.8:9999 -ServiceBindIP 192.168.22.XXX
-```
-
-3. **Configure NIC** (if not already done):
-
-```powershell
-# Set static IP on router-facing NIC (identify by MAC or alias)
-.\scripts\pin_metrics_22100.ps1 -ControlNicMAC "AA-BB-CC-DD-EE-FF" -RouterNicMAC "11-22-33-44-55-66"
-```
-
-4. **In workflows**, set `router_control_url` per worker:
-
-```yaml
-router:
-  router_control_url: "http://192.168.22.XXX:8081"
-```
-
----
-
-## E. Verification Depth / Validation Test
-
-### E2E Wireless Verification
-
-```powershell
-python scripts/test_e2e_wireless.py --remote-host 192.168.22.100
-# With Wi-Fi scan verification:
-python scripts/test_e2e_wireless.py --remote-host 192.168.22.100 --worker-host 192.168.22.100 --worker-port 8080
-```
-
-**Steps performed:**
-
-1. **Health check** -- verify `/health` returns OK
-2. **Baseline snapshot** -- `GET /router/status` captures current SSID/password/channel for all bands
-3. **Apply test config** -- `POST /router/apply` with distinct SSIDs per band
-4. **Verify via /router/status** -- poll until config readback matches (primary verification)
-5. **Wi-Fi scan verification** -- `GET /wifi/scan` on worker checks SSID broadcast presence (required)
-   and channel match (best-effort, especially for 6 GHz)
-6. **Restore baseline** -- `POST /router/apply` with saved baseline values
-7. **Verify restoration** -- confirm SSIDs match original
-
-**Pass/fail criteria:**
-
-- Router reported config (`/router/status`) MUST match applied values for all bands
-- Wi-Fi scan MUST find all expected SSIDs broadcasting
-- Channel match in scan is best-effort (warn only) -- 6 GHz channels may not be visible
-- Baseline MUST be fully restored after test
-
-**Output:** `artifacts/e2e_wireless_test_report.json`
-
-### Test Workflow YAML Example
-
-```yaml
-name: "validation_test"
-router:
-  base_url: "http://192.168.1.1"
-  router_control_url: "http://192.168.22.100:8081"
-  bands:
-    2.4G:
-      ssid: "RFLab2g_VERIFY"
-      password: "TestPass24!"
-      channel: "6"
-      security: "wpa2"
-    5G:
-      ssid: "RFLab5g_VERIFY"
-      password: "TestPass5g!"
-      channel: "36"
-      security: "wpa2"
-    6G:
-      ssid: "RFLab6g_VERIFY"
-      password: "TestPass6g!"
-      channel: "37"
-      security: "wpa3"
-```
-
----
-
-## F. Safe Upgrade Procedure
-
-See [docs/Safe_Upgrade_and_Deploy.md](docs/Safe_Upgrade_and_Deploy.md) for full copy-paste runbook.
-
-**Summary:**
-
-```powershell
-# 1. Stop service
-Stop-ScheduledTask -TaskName "RASAgent-RouterService"
-
-# 2. Wait for processes to exit
-$timeout = 30; $elapsed = 0
-do {
-    $procs = Get-Process python* -ErrorAction SilentlyContinue |
-             Where-Object { $_.Path -like "C:\RASAgent\*" }
-    if (-not $procs) { break }
-    Start-Sleep 3; $elapsed += 3
-} while ($elapsed -lt $timeout)
-
-# 3. Force-kill only if needed (only C:\RASAgent processes)
-Get-Process python* -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -like "C:\RASAgent\*" } | Stop-Process -Force
-
-# 4. Backup -> Remove -> Deploy -> Restore
-# (see deploy_22100_routerservice.ps1 for automated version)
-
-# 5. Start and verify
-Start-ScheduledTask -TaskName "RASAgent-RouterService"
-Invoke-RestMethod http://localhost:8081/health
-```
-
-Or use the automated deploy script:
-
-```powershell
-# From orchestrator (handles everything):
-python scripts/deploy_and_restart.py
-```
-
----
-
-## G. Binding and UID
-
-### Where Bind IP Is Configured
-
-- **`.env` on worker:** `SERVICE_BIND_IP=192.168.22.100` (or `0.0.0.0` for lab)
-- **Scheduled task command:** `--host %SERVICE_BIND_IP%` passed to uvicorn
-- **FastAPI startup validation:** `router_service/app.py` checks bind IP on boot
-
-### Changing Bind IP
-
-```powershell
-# 1. Update .env
-Set-Content C:\RASAgent\.env -Value @(
-    "ROUTER_USER=admin",
-    "ROUTER_PASS=Password@1",
-    "SERVICE_BIND_IP=192.168.22.100",
-    "SERVICE_MODE=lab"
-)
-
-# 2. Re-register scheduled task (reads SERVICE_BIND_IP from .env)
-.\scripts\setup_22100_autostart.ps1
-```
-
----
-
-## H. Versioning and Admin Endpoint
-
-### VERSION File
-
-The repo root contains a `VERSION` file (e.g., `1.1.0`).
-
-### Build Info
-
-`scripts/deploy_and_restart.py` generates `build_info.json` during zip build:
-
-```json
-{
-  "version": "1.1.0",
-  "commit": "abc1234",
-  "tag": "v1.1.0",
-  "build_time": "2026-03-11T12:00:00+00:00"
-}
-```
-
-### GET /admin/version
-
-```powershell
-Invoke-RestMethod http://192.168.22.100:8081/admin/version
-```
-
-Returns:
-
-```json
-{
-  "version": "1.1.0",
-  "commit": "abc1234",
-  "build_time": "2026-03-11T12:00:00+00:00",
-  "python": "3.14.0",
-  "service_mode": "lab",
-  "bind_ip": "0.0.0.0"
-}
-```
-
----
-
-## I. File Locations
-
-### Core Service Files
-
-- `router_service/app.py` -- FastAPI service (runs on worker)
-- `router/netgear_rs700/driver.py` -- Playwright automation for RS700
-- `router/netgear_rs700/selectors.py` -- HTML form field mappings per band
-- `orchestrator/utils/health.py` -- 3-stage health check (control path, router, WAN)
-- `orchestrator/actions/e2e_steps.py` -- E2E workflow steps with baseline + rollback
-- `orchestrator/actions/router_netgear.py` -- Orchestrator-side router API client
-- `worker/app.py` -- Worker FastAPI service (Wi-Fi scan, connect, ping)
-
-### Scripts
-
-- `scripts/bootstrap_22100.ps1` -- One-command bootstrap for new workers
-- `scripts/deploy_22100_routerservice.ps1` -- Safe deploy with two-phase stop + backup/restore
-- `scripts/deploy_and_restart.py` -- Orchestrator-side zero-touch deploy
-- `scripts/setup_22100_autostart.ps1` -- Register/update scheduled task
-- `scripts/setup_22100_network.ps1` -- Configure static IP on router NIC
-- `scripts/pin_metrics_22100.ps1` -- Pin interface metrics on worker (supports MAC/ifIndex)
-- `scripts/pin_metrics_orchestrator.ps1` -- Pin interface metrics on orchestrator
-- `scripts/test_e2e_wireless.py` -- E2E wireless verification test
-- `scripts/ci_guard_no_local_wifi.py` -- CI guard against local Wi-Fi commands
-
-### Configuration
-
-- `.env.example` -- Template for environment variables
-- `VERSION` -- Repo version string
-- `build_info.json` -- Generated during deploy (version, commit, timestamp)
-- `workflows/*.yaml` -- Workflow definitions
-
-### Tests
-
-- `tests/test_ci_guard.py` -- CI guard unit tests
-- `tests/test_health_gate.py` -- Health gating and rollback unit tests
-
-### Documentation
-
-- `docs/Safe_Upgrade_and_Deploy.md` -- Safe upgrade runbook
-
-### Artifacts (Runtime, Never Committed)
-
-- `artifacts/e2e_wireless_test_report.json` -- Wireless E2E results
-- `artifacts/final_report.json` -- E2E workflow summary
-- `artifacts/sweep_summary.json` -- Channel sweep results
-- `artifacts/screenshot_*.png` -- Browser screenshots on failure
-- `artifacts/page_*.html` -- HTML dump on failure
-- `artifacts/trace*.zip` -- Playwright trace
-- `artifacts/network.har` -- Network traffic log
-
----
-
-## Directory Structure
-
-```
-orchestrator/           Workflow engine, actions, coordination
-router/                 Playwright-based router UI automation
-  netgear_rs700/        RS700-specific driver, selectors, evidence
-  netgear_nighthawk/    Legacy Nighthawk driver (reference)
-router_service/         FastAPI service deployed on 22.100
-worker/                 FastAPI service on each remote Windows PC
-scripts/                Entry-point scripts, deploy tools, tests
-workflows/              YAML workflow definitions
-tests/                  Unit tests
-docs/                   Runbooks and documentation
-artifacts/              Runtime output -- never committed
-```
-
----
-
-## Prerequisites
-
-- **Orchestrator PC:** Python 3.10+, pip, wired connection to 22-domain network
-- **22.100 PC:** Python 3.10+ (tested with 3.13/3.14), wired Ethernet to both 22-domain and router LAN
-- **Router:** Netgear RS700, accessible at `192.168.1.1`, HTTP Basic Auth
-
-> The 22.100 machine does **not** need internet access.  All dependencies are
-> deployed offline from the orchestrator.
-
----
-
-## Configuration
-
-```powershell
-Copy-Item .env.example .env
-# Edit .env:
-#   ROUTER_USER=admin
-#   ROUTER_PASS=<your router password>
-#   SERVICE_BIND_IP=192.168.22.100   # or 0.0.0.0 for lab
-#   SERVICE_MODE=lab                  # or production
-```
-
-> **Never commit `.env`.** It is listed in `.gitignore`.
-
----
-
-## Deployment
-
-### First-Time Setup (New Machine)
-
-#### Step 1 -- Orchestrator: Build and Serve
-
-```powershell
-cd "c:\Projects\RAS Wireless Agent"
-.\.venv\Scripts\Activate.ps1
-python scripts/deploy_and_restart.py --zip-only
-python -m http.server 9999 --bind 0.0.0.0
-```
-
-#### Step 2 -- Target Machine: One-Line Bootstrap
-
-Open an **elevated PowerShell** on the target machine:
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force
-iwr http://192.168.22.8:9999/scripts/bootstrap_22100.ps1 -OutFile $env:TEMP\bootstrap.ps1
-& $env:TEMP\bootstrap.ps1 -SourceBase http://192.168.22.8:9999 -ServiceBindIP 192.168.22.100
-```
-
-The bootstrap handles: download, extract, venv, offline pip, Playwright browsers,
-.env creation, scheduled task registration, health verification.
-
-#### Step 3 -- Verify
-
-```powershell
-Invoke-RestMethod http://192.168.22.100:8081/health
-Invoke-RestMethod http://192.168.22.100:8081/admin/version
-```
-
-### Subsequent Deploys (Zero-Touch)
-
-```powershell
-python scripts/deploy_and_restart.py
-```
-
-Options: `--no-restart`, `--zip-only`, `--remote-host IP`, `--remote-port N`, `--serve-port N`
-
----
-
-## Router Service API
-
-The router service runs on 22.100 at port 8081.
-
-### Core Endpoints
-
-- **GET `/health`** -- Liveness check + router reachability
-- **GET `/router/status`** -- Read SSID, channel, passphrase, security for all bands
-- **POST `/router/apply`** -- Configure SSID/channel/password/security for any combination of bands
-- **POST `/router/detect-bands`** -- Detect available bands
-
-### Admin Endpoints
-
-- **POST `/admin/update`** -- Download new code zip, swap files, restart service
-- **POST `/admin/restart`** -- Restart the service via scheduled task
-- **POST `/admin/fix-playwright`** -- Copy Playwright browsers to SYSTEM-accessible path
-- **GET `/admin/version`** -- Build version, commit, runtime info
+## Router Service (Part 1 -- 22.100)
+
+FastAPI service on the relay PC with wired access to the router. Runs Playwright
+locally; the orchestrator only talks HTTP.
+
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Liveness + router reachability |
+| `/router/apply` | POST | Apply SSID/password/channel per band |
+| `/router/status` | GET | Read current band config |
+| `/router/detect-bands` | POST | Detect available bands |
+| `/admin/update` | POST | Download zip, swap code, restart |
+| `/admin/version` | GET | Build version info |
 
 ### POST /router/apply
 
@@ -541,63 +174,151 @@ The router service runs on 22.100 at port 8081.
 }
 ```
 
-**Supported `security` values:**
+---
 
-- 2.4G/5G: `disable`, `wpa2`, `auto`, `wpa3`, `wpa3-mixed`, `owe`
-- 6G: `wpa3`, `owe`
+## WiFi Worker Service (Part 3 -- 22.203)
+
+FastAPI service on the worker PC with an Intel BE200 WiFi adapter. Uses `netsh wlan`
+exclusively (no coordinate-based automation).
+
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Liveness check |
+| `/wifi/connect` | POST | Connect to SSID (profile + connect + optional static IP) |
+| `/wifi/status` | GET | Current SSID, IP, gateway |
+| `/wifi/scan` | GET | Scan visible networks |
+| `/net/ping` | POST | Ping a host |
+
+### Timing
+
+The worker connects to the test frequency band **after LabVIEW step 16** (design stage)
+and before step 18 (final start). This ensures the WiFi card is associated to the
+correct band when the throughput test begins.
 
 ---
 
-## Router Field Mappings (Netgear RS700)
+## Directory Structure
 
-The RS700 uses a single tri-band page at `/WLG_wireless_tri_band.htm`:
-
-- 2.4G: `ssid`, `passphrase`, `w_channel`, `security_type`, `opmode`
-- 5G: `ssid_an`, `passphrase_an`, `w_channel_an`, `security_type_an`, `opmode_an`
-- 6G: `ssid_an_2`, `passphrase_an_2`, `w_channel_an_2`, `security_type_an_2`, `opmode_an_2`
-
-> The per-band ADVANCED pages show unified "Smart Connect" settings.
-> The 6G page (`WLG_wireless4.htm`) returns 404.  Always use the tri-band BASIC page.
-
----
-
-## Known Issues and Solutions
-
-### 1. Netgear SSO Modal Blocks Playwright Clicks
-
-**Cause:** RS700 firmware displays "Install Nighthawk App" modal overlay.
-**Solution:** Driver dismisses it via JavaScript injection after every navigation + `force=True` on Apply.
-
-### 2. Playwright Browsers Not Found Under SYSTEM Account
-
-**Cause:** SYSTEM cannot access user-profile `ms-playwright`.
-**Solution:** `PLAYWRIGHT_BROWSERS_PATH` set to `C:\RASAgent\.playwright`.
-
-### 3. Scheduled Task Kills Child Processes (Job Object)
-
-**Cause:** Windows Job Objects terminate all children on task end.
-**Solution:** `CREATE_BREAKAWAY_FROM_JOB` flag + `os._exit(1)` fallback.
-
-### 4. Blank-Password Admin Blocks WinRM
-
-**Cause:** Local admin has no password.
-**Solution:** Bootstrap runs locally (one-time); subsequent deploys use HTTP `/admin/update`.
-
-### 5. Directory Lock During Redeploy
-
-**Cause:** Python process holds file lock.
-**Solution:** `deploy_22100_routerservice.ps1` uses two-phase stop (graceful + optional force-kill)
-and backup/restore of `.env`, `.playwright`, `.venv`.
-
-### 6. 6 GHz Channel Not Visible in Wi-Fi Scan
-
-**Cause:** 6 GHz requires Wi-Fi 6E hardware; scan results may not show 6 GHz networks.
-**Solution:** Channel matching is best-effort (warn only).  SSID presence is the primary check.
-Regional regulatory constraints may further limit 6 GHz channel availability.
+```
+orchestrator/               Workflow engine, actions, coordination
+  local_automation/         LabVIEW GUI automation (PyAutoGUI)
+    labview_runner.py       18-step wizard driver
+    finish_detector.py      Test completion detection (PDF/UI/log)
+    screen_utils.py         Window capture, template matching
+    ui_flow.yaml            Flow config, coordinates, band overrides
+    templates/              Reference screenshots for verification
+  actions/                  E2E step implementations
+  utils/                    Health checks, retry, timeouts
+router/                     Playwright-based router UI automation
+  netgear_rs700/            RS700 driver, selectors, evidence
+  netgear_nighthawk/        Legacy Nighthawk driver (reference)
+router_service/             FastAPI service deployed on 22.100
+worker/                     FastAPI worker service (WiFi, ping)
+scripts/                    Entry-point scripts, deploy tools
+  run_24g.py                Run 2.4G LabVIEW automation
+  run_labview_all_bands.py  Run all bands sequentially
+  run_e2e_lab.py            Full E2E workflow
+  deploy_and_restart.py     Zero-touch deploy to 22.100
+  bootstrap_22100.ps1       One-command bootstrap for 22.100
+  bootstrap_22203_worker.ps1  Worker bootstrap for 22.203
+workflows/                  YAML workflow definitions
+  e2e_lab.yaml              Full E2E: router + workers + automation
+  e2e_be200_2g.yaml         RS700 2.4G -> Intel BE200 -> ping
+tests/                      Unit tests
+docs/                       Runbooks and documentation
+artifacts/                  Runtime output -- never committed
+```
 
 ---
 
-## Install (Development)
+## Network Requirements
+
+### Machine Roles
+
+| Machine | IP (22-domain) | Role | Services |
+|---------|-----------------|------|----------|
+| Orchestrator | 192.168.22.8 | Workflow engine, LabVIEW host | Orchestrator, LabVIEW runner |
+| Router Relay | 192.168.22.100 | Router GUI proxy | Router service :8081 |
+| WiFi Worker | 192.168.22.203 | Intel BE200 WiFi control | Worker service :8080 |
+| Router | 192.168.1.1 | Device under test | Netgear RS700 |
+
+### Orchestrator (22.8)
+
+- **NIC-1 (Internet / 200-domain):** Default gateway, metric 10
+- **NIC-2 (22-domain control):** IP in 192.168.22.0/24, metric 20, **no route to 192.168.1.0/24**
+
+### Router Relay (22.100)
+
+- **22-domain NIC:** IP `192.168.22.100`, metric 10 (management)
+- **Router NIC:** Static IP `192.168.1.50`, **no default gateway**, metric 100
+
+### WiFi Worker (22.203)
+
+- **22-domain NIC:** IP `192.168.22.203`, metric 10 (management)
+- **WiFi adapter:** Intel BE200, connects to router SSID on test band
+
+### Prechecks
+
+```powershell
+# Orchestrator: verify no route to router subnet
+route print | Select-String "192.168.1"
+# Expected: EMPTY
+
+# Orchestrator: verify control path
+Test-NetConnection 192.168.22.100 -Port 8081   # Router service
+Test-NetConnection 192.168.22.203 -Port 8080   # Worker service
+
+# Router Relay: verify router reachable
+Test-NetConnection 192.168.1.1 -Port 80
+```
+
+---
+
+## Configuration
+
+```powershell
+Copy-Item .env.example .env
+# Edit .env:
+#   ROUTER_USER=admin
+#   ROUTER_PASS=<your router password>
+#   SERVICE_BIND_IP=192.168.22.100
+#   SERVICE_MODE=lab
+```
+
+LabVIEW automation parameters are configured in `orchestrator/local_automation/ui_flow.yaml`
+and can be overridden via `RunConfig` in code.
+
+---
+
+## Deployment
+
+### Router Service (22.100)
+
+```powershell
+# From orchestrator -- one-time bootstrap
+python scripts/deploy_and_restart.py --zip-only
+python -m http.server 9999 --bind 0.0.0.0
+
+# On 22.100 (elevated PowerShell)
+Set-ExecutionPolicy Bypass -Scope Process -Force
+iwr http://192.168.22.8:9999/scripts/bootstrap_22100.ps1 -OutFile $env:TEMP\bootstrap.ps1
+& $env:TEMP\bootstrap.ps1 -SourceBase http://192.168.22.8:9999 -ServiceBindIP 192.168.22.100
+
+# Subsequent deploys (zero-touch)
+python scripts/deploy_and_restart.py
+```
+
+### WiFi Worker (22.203)
+
+```powershell
+# On 22.203 (elevated PowerShell)
+iwr http://192.168.22.8:9999/scripts/bootstrap_22203_worker.ps1 -OutFile $env:TEMP\bootstrap.ps1
+& $env:TEMP\bootstrap.ps1 -SourceBase http://192.168.22.8:9999
+```
+
+### Orchestrator (22.8)
 
 ```powershell
 python -m venv .venv
@@ -605,18 +326,39 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Playwright is NOT needed on the orchestrator -- it runs on 22.100.
+---
 
-### Network Setup (Run Once, As Admin)
+## Security Model
 
-```powershell
-# On 22.100
-.\scripts\setup_22100_network.ps1
-.\scripts\pin_metrics_22100.ps1
+- All secrets in `.env` (never committed, listed in `.gitignore`)
+- `.env.example` provides placeholder keys
+- Required: `ROUTER_USER`, `ROUTER_PASS`, `SERVICE_BIND_IP`, `SERVICE_MODE`
+- Service bind IP enforced by uvicorn CLI and FastAPI startup validation
+- Router credentials loaded via `python-dotenv`
 
-# On Orchestrator
-.\scripts\pin_metrics_orchestrator.ps1
-```
+---
+
+## Prerequisites
+
+| Machine | Requirements |
+|---------|-------------|
+| Orchestrator (22.8) | Python 3.10+, PyAutoGUI, OpenCV, pywin32, LabVIEW 480.000.v2.03.exe |
+| Router Relay (22.100) | Python 3.10+, Playwright, Chromium, wired Ethernet to router |
+| WiFi Worker (22.203) | Python 3.10+, Intel BE200 adapter, admin privileges for netsh |
+
+---
+
+## Known Issues
+
+| # | Issue | Mitigation |
+|---|-------|------------|
+| 1 | Netgear SSO modal blocks Playwright | JS injection dismissal + `force=True` |
+| 2 | Playwright browsers not found under SYSTEM | `PLAYWRIGHT_BROWSERS_PATH=C:\RASAgent\.playwright` |
+| 3 | Scheduled task kills child processes | `CREATE_BREAKAWAY_FROM_JOB` flag |
+| 4 | 6 GHz channel not visible in scan | SSID presence check only (warn on channel) |
+| 5 | LabVIEW `480_214.vi` blocks wizard | Auto-minimize before every major action |
+| 6 | Chinese IME garbles typed input | Force English layout before every keystroke |
+| 7 | pytesseract not installed | OCR verification runs in `strict=False` mode |
 
 ---
 
@@ -631,15 +373,10 @@ python scripts/ci_guard_no_local_wifi.py
 
 # E2E wireless test
 python scripts/test_e2e_wireless.py --remote-host 192.168.22.100
+
+# 2.4G LabVIEW automation
+python scripts/run_24g.py
+
+# All bands
+python scripts/run_labview_all_bands.py
 ```
-
----
-
-## Limitations
-
-- **Wired LAN required:** 22.100 must have wired Ethernet to the router.
-- **Admin privileges:** `netsh wlan` commands require elevated access.
-- **Router firmware:** Selectors target Netgear RS700 firmware. Other models need new selectors.
-- **Single router:** Targets one Netgear RS700 at a fixed IP.
-- **First bootstrap is manual:** Must be run locally on the target machine (blank-password WinRM restriction).
-- **6 GHz scan limitations:** Wi-Fi 6E hardware required; channel visibility varies by region and adapter.

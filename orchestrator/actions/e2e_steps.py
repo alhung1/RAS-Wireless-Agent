@@ -619,3 +619,88 @@ def build_final_report(
     path = _save_artifact("final_report.json", report, adir)
     logger.info("Final report written to %s", path, extra={"action": "report", "step": "done"})
     return report
+
+
+# ---------------------------------------------------------------------------
+# LabVIEW local automation step
+# ---------------------------------------------------------------------------
+
+async def step_run_labview_test(
+    band: str,
+    rf_channels: dict[str, str],
+    user_information: str = "",
+    timeout_seconds: int = 14400,
+    finish_config: Optional[dict] = None,
+    artifacts_dir: Optional[str] = None,
+) -> dict[str, Any]:
+    """Run the LabVIEW RvR throughput test via local GUI automation.
+
+    This step drives the already-running LabVIEW 480.000.v2.03.exe through
+    its wizard flow and then waits for the test to complete.
+
+    Parameters:
+        band: "2.4G", "5G", "6G", or "MLO"
+        rf_channels: {"2g": "10", "5g": "44", "6g": "69"}
+        user_information: free text shown in LabVIEW (e.g. "2G test")
+        timeout_seconds: max wait for test completion (default 4h)
+        finish_config: dict of FinishConfig fields (result_file_dir, etc.)
+        artifacts_dir: where to save screenshots and logs
+    """
+    adir = _resolve_artifacts(artifacts_dir)
+
+    logger.info(
+        "step_run_labview_test: band=%s channels=%s",
+        band, rf_channels,
+        extra={"action": "labview_test", "step": "start"},
+    )
+
+    try:
+        from orchestrator.local_automation.labview_runner import (
+            RunConfig, run_labview_flow,
+        )
+    except ImportError as exc:
+        return {
+            "success": False,
+            "error": f"labview_runner not available: {exc}",
+        }
+
+    mode_map = {"2.4G": "BW20", "5G": "BW160", "6G": "BW320"}
+    pairs_map = {"2.4G": ("8", "0"), "5G": ("0", "16"), "6G": ("0", "20")}
+    pairs_2g, pairs_5g6g = pairs_map.get(band, ("8", "0"))
+
+    fc = finish_config or {
+        "result_file_dir": r"D:\480\LOG\RBU",
+        "result_file_glob": "*.pdf",
+        "timeout_sec": timeout_seconds,
+        "poll_interval_sec": 30,
+    }
+
+    cfg = RunConfig(
+        band=band,
+        rf_channel_2g=rf_channels.get("2g", "0"),
+        rf_channel_5g=rf_channels.get("5g", "0"),
+        rf_channel_6g=rf_channels.get("6g", "0"),
+        user_information=user_information or f"{band} test",
+        mode=mode_map.get(band, "BW20"),
+        number_of_pairs=pairs_2g,
+        number_of_pairs_5g6g=pairs_5g6g,
+        timeout_seconds=timeout_seconds,
+        finish_config=fc,
+    )
+
+    report = await asyncio.to_thread(
+        run_labview_flow, cfg, os.path.join(adir, "labview"),
+    )
+
+    result = {
+        "success": report.success,
+        "band": band,
+        "steps_completed": len(report.steps),
+        "error": report.error,
+        "artifacts_dir": os.path.join(adir, "labview"),
+    }
+    if report.finish_result:
+        result["finish"] = report.finish_result
+
+    _save_artifact(f"labview_{band}_result.json", result, adir)
+    return result

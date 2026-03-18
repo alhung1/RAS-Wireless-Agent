@@ -1,0 +1,220 @@
+name: "LabVIEW RvR Wireless v2.03 - Full Test Flow"
+description: >
+  Configurable UI automation flow for the LabVIEW throughput test.
+  Each step uses absolute pixel coordinates calibrated on a 2560x1440
+  display with 125% DPI, window positioned at (0,0).
+
+exe_path: "C:\\480.builds\\v2.03\\480.000.v2.03.exe"
+window_hints: ["480", "RvR Wireless", "400 600"]
+
+# Folders containing .txt definition files for listbox popups
+ap_folder: "E:\\AP"
+client_folder: "E:\\Client"
+
+defaults:
+  username: "Alex"
+  password: "123"
+  freq_range: "MLO"
+  test_type: "1 rpm (fast)"
+  ap_name: "RS700"
+  client_name: "INTEL_BE200"
+  mode: "BW20"
+  graph_range: "100"
+  start_atten: "0"
+  step_size: "3"
+  steps: "30"
+  number_of_pairs: "8"
+  number_of_pairs_5g6g: "0"
+  design_stage: "Beta"
+  region: "US"
+  ip_dropdown_2g: "3"
+  ip_dropdown_5g6g: "3"
+  ap_ip: "192.168.1.1"
+
+# Per-band overrides: when running for a specific band, these values
+# override the defaults above.
+band_configs:
+  "2.4G":
+    rf_channel_2g: "10"
+    rf_channel_5g: "44"
+    rf_channel_6g: "69"
+    user_information: "2G test"
+    mode: "BW20"
+    number_of_pairs: "8"
+    number_of_pairs_5g6g: "0"
+
+  "5G":
+    rf_channel_2g: "0"
+    rf_channel_5g: "44"
+    rf_channel_6g: "0"
+    user_information: "5G test"
+    mode: "BW160"
+    number_of_pairs: "0"
+    number_of_pairs_5g6g: "16"
+
+  "6G":
+    rf_channel_2g: "0"
+    rf_channel_5g: "0"
+    rf_channel_6g: "69"
+    user_information: "6G test"
+    mode: "BW320"
+    number_of_pairs: "0"
+    number_of_pairs_5g6g: "20"
+
+  "MLO":
+    rf_channel_2g: "10"
+    rf_channel_5g: "44"
+    rf_channel_6g: "69"
+    user_information: "MLO test"
+    mode: "BW20"
+    number_of_pairs: "8"
+    number_of_pairs_5g6g: "8"
+
+# Absolute pixel coordinates calibrated on 2560x1440 display with 125% DPI.
+# Window rect is (0,0,1288,1040) logical. pyautogui clicks use physical px.
+# IMPORTANT: These coordinates depend on the window being at position (0,0).
+coordinates_abs:
+  orange_arrow_right:  [1197, 977]
+  orange_arrow_left:   [60, 977]
+
+  # Step 05: Freq Range dropdown (481.300.vi)
+  # Calibrated 2026-03-16: yellow "Not valid" box center at (511,344) on 1288x1040 window
+  freq_range_dropdown: [511, 344]
+
+  # Step 05: Freq/Channel screen (481.300.vi)
+  # Calibrated 2026-03-16: measured via yellow-region detection on 1288x1040 window
+  rf_channel_2g_field: [460, 752]
+  rf_channel_5g_field: [655, 752]
+  rf_channel_6g_field: [850, 753]
+  user_info_field:     [690, 845]
+
+  # Step 11: IP address screen (400 600 IP address Dual LAN.vi)
+  ip_button_0:         [330, 832]
+  ip_button_1:         [360, 832]
+  ip_2g_dropdown:      [601, 550]
+  ip_2g_select_3:      [550, 575]
+  ip_5g_dropdown:      [916, 550]
+  ip_5g_select_3:      [870, 575]
+
+  # Step 12: Chariot pairs screen
+  pairs_2g_field:      [580, 406]
+  pairs_5g_field:      [580, 706]
+
+  # Step 14: MODE screen (400 600 MODE.vi)
+  mode_dropdown:       [249, 757]
+
+  # Step 15: Attenuation screen (481.300 atten.vi)
+  start_atten_field:   [153, 496]
+  end_atten_field:     [404, 496]
+  step_size_field:     [566, 496]
+  steps_field:         [750, 496]
+
+  # Step 16: Chariot/Design stage screen (400 600 Chariot.vi)
+  design_stage_drop:   [734, 491]
+
+  # Step 17: Region screen (400 600 REGION.vi)
+  region_dropdown_arrow: [295, 488]
+
+# Dropdown navigation sequences (calibrated)
+# Strategy: press Up N times to reach top, then Down M to target item
+dropdown_nav:
+  # Mode dropdown items (top to bottom): BW20, BW40, BW80, BW160, BW240, BW320, Not Valid
+  mode_bw20:
+    open_at: [249, 757]
+    up_presses: 6
+    down_presses: 0
+  mode_bw40:
+    open_at: [249, 757]
+    up_presses: 6
+    down_presses: 1
+  mode_bw80:
+    open_at: [249, 757]
+    up_presses: 6
+    down_presses: 2
+  mode_bw160:
+    open_at: [249, 757]
+    up_presses: 6
+    down_presses: 3
+  mode_bw240:
+    open_at: [249, 757]
+    up_presses: 6
+    down_presses: 4
+  mode_bw320:
+    open_at: [249, 757]
+    up_presses: 6
+    down_presses: 5
+
+  # Freq Range items (step 05): 2.4GHz, 5GHz, 6GHz, MLO, Not Valid
+  freq_range_mlo:
+    open_at: [511, 344]
+    up_presses: 10
+    down_presses: 3
+
+  # Design stage items: Alpha, Beta, Pilot, MP, Not Valid
+  design_beta:
+    open_at: [734, 491]
+    up_presses: 15
+    down_presses: 1
+
+  # Region items: US, Europe, Australia, Japan, Latan America, China,
+  #               India, Russia, Canada, South Africa, Not Valid
+  region_us:
+    open_at: [295, 488]
+    up_presses: 20
+    down_presses: 0
+
+# Test type dropdown navigation (step 03)
+# Available items (keyboard nav skips [Removed]):
+#   0: Not valid, 1: Link Budget, 2: 1 rpm (fast), 3: Interference LB (RvR)
+# Strategy: click dropdown at (330, 368), Up 15 to top, Down 2 to "1 rpm (fast)"
+test_type_dropdown:
+  open_at: [330, 368]
+  up_presses: 15
+  down_presses: 2
+
+# Orange arrow (Next) position in window coordinates
+# Detected via color matching on 1288x1040 window
+orange_arrow_px: [1183, 976]
+
+# Expected VI titles for transition verification after each orange arrow click.
+# After clicking the orange arrow on step N, the next screen should contain the
+# hint string. If the screen doesn't match, the step fails.
+# null means "just verify something changed" (no specific title expected).
+expected_transitions:
+  step_03_test_type:     "table position"  # -> 480.600 table position.vi
+  step_04_table_position: "481"         # -> freq/channel VI (481.300.vi)
+  step_05_freq_channel:  null           # -> AP selection screen (title varies)
+  step_06_select_ap:     null           # -> use last AP screen
+  step_07_use_last_ap:   null           # -> client selection screen
+  step_08_select_client: null           # -> DUT IP screen
+  step_09_dut_ip:        null           # -> use last DUT screen
+  step_10_use_last_dut:  "IP address"   # -> IP address Dual LAN
+  step_11_band_select:   null           # -> chariot pairs
+  step_12_chariot_pairs: null           # -> pass through
+  step_13_pass_through:  "MODE"         # -> MODE screen
+  step_14_mode:          "atten"        # -> attenuation screen
+  step_15_attenuation:   "Chariot"      # -> design stage (Chariot.vi)
+  step_16_design_stage:  "REGION"       # -> region screen
+  step_17_region:        null           # -> final confirm
+  step_18_final_start:   null           # -> test running (no transition check)
+
+# Templates for screen verification (filenames in templates/ dir)
+templates:
+  throughput_tab:    "throughput_tab.png"
+  green_ok_button:   "green_ok_button.png"
+  orange_arrow:      "orange_arrow.png"
+  done_button:       "done_button.png"
+  netgear_logo:      "netgear_logo.png"
+  please_wait:       "please_wait.png"
+  test_running:      "test_running.png"
+
+# Finish detection config
+# A PDF file appearing in D:\480\LOG\RBU signals test completion
+finish_detection:
+  timeout_sec: 14400
+  poll_interval_sec: 30
+  result_file_dir: "D:\\480\\LOG\\RBU"
+  result_file_glob: "*.pdf"
+  log_file_path: ""
+  log_keyword: "Completed"
+  ui_keywords: ["Completed", "Finished", "PASS", "FAIL", "Done"]

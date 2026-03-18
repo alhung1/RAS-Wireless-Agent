@@ -1,0 +1,55 @@
+name: "E2E Phase 1: RS700 2.4G -> Intel BE200 (22.203)"
+description: >
+  Phase 1 acceptance: configure RS700 2.4G, connect Intel BE200 on
+  192.168.22.203, verify ping to 192.168.1.100 (22.100 router-facing IP).
+  5G/6G are not touched.
+
+router:
+  base_url: http://192.168.1.1
+  router_control_url: http://192.168.22.100:8081
+  bands:
+    "2.4G":
+      ssid: RFLab2g_BE200
+      password: TestPassBE200!
+      channel: "6"
+      security: wpa2
+
+workers:
+  - url: "http://192.168.22.100:8081"
+    name: relay-22100
+    role: router_service
+  - url: "http://192.168.22.203:8080"
+    name: worker-be200
+    role: wifi_client
+
+steps:
+  - action: router_apply
+    description: "Set RS700 2.4G SSID/password/channel"
+
+  - action: wait_ssid_broadcast
+    description: "Scan on 22.203 until 2.4G SSID visible"
+    scan:
+      target_ssid: RFLab2g_BE200
+      timeout_sec: 60
+      poll_interval_sec: 5
+    target_workers:
+      - "http://192.168.22.203:8080"
+
+  - action: wifi_connect_workers
+    description: "Connect BE200 to 2.4G SSID with static IP"
+    connect_band: "2.4G"
+    connect_options:
+      adapter_hint: "Intel(R) Wi-Fi 7 BE200"
+      static_ip: "192.168.1.203"
+      mask: "255.255.255.0"
+    target_workers:
+      - "http://192.168.22.203:8080"
+
+  - action: ping_gate
+    description: "22.203 must ping 192.168.1.100"
+    ping_gate:
+      host: "192.168.1.100"
+      count: 4
+      timeout_sec: 5
+    target_workers:
+      - "http://192.168.22.203:8080"

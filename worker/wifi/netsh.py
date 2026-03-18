@@ -180,6 +180,67 @@ def get_ipv4_and_gateway(interface_name: Optional[str] = None) -> dict[str, Opti
     return {"ipv4": ipv4, "gateway": gateway}
 
 
+def resolve_interface_by_hint(adapter_hint: str) -> Optional[str]:
+    """Find the WLAN interface name whose description contains *adapter_hint*.
+
+    Windows ``netsh wlan show interfaces`` lists "Description" which
+    contains the adapter product name (e.g. "Intel(R) Wi-Fi 7 BE200").
+    The "Name" field (e.g. "Wi-Fi") is what netsh commands require.
+    """
+    info = get_interfaces()
+    for iface in info.get("interfaces", []):
+        desc = iface.get("description", "")
+        if adapter_hint.lower() in desc.lower():
+            name = iface.get("name")
+            logger.info(
+                "Resolved adapter hint %r -> interface %r (desc=%r)",
+                adapter_hint, name, desc,
+                extra={"action": "resolve_hint", "step": "found"},
+            )
+            return name
+    logger.warning(
+        "Adapter hint %r not found in %d interfaces",
+        adapter_hint, len(info.get("interfaces", [])),
+        extra={"action": "resolve_hint", "step": "not_found"},
+    )
+    return None
+
+
+def set_static_ip(
+    interface_name: str,
+    ip: str,
+    mask: str = "255.255.255.0",
+    gateway: Optional[str] = None,
+) -> dict[str, Any]:
+    """Set a static IPv4 address on *interface_name* via netsh."""
+    args = [
+        "interface", "ip", "set", "address",
+        f"name={interface_name}",
+        "source=static",
+        f"addr={ip}",
+        f"mask={mask}",
+    ]
+    if gateway:
+        args.append(f"gateway={gateway}")
+    result = _run_netsh(args, timeout=15)
+    logger.info(
+        "Set static IP %s/%s on %s: %s",
+        ip, mask, interface_name, result["success"],
+        extra={"action": "set_static_ip", "step": "result"},
+    )
+    return result
+
+
+def get_interface_detail(interface_name: Optional[str] = None) -> dict[str, Any]:
+    """Return detailed info for a single WLAN interface (SSID, BSSID, RSSI, etc.)."""
+    info = get_interfaces()
+    for iface in info.get("interfaces", []):
+        if interface_name and iface.get("name") != interface_name:
+            continue
+        return iface
+    return {}
+
+
 def scan_networks(interface: Optional[str] = None) -> dict[str, Any]:
     args = ["wlan", "show", "networks"]
     if interface:
