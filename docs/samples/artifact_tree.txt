@@ -1,0 +1,83 @@
+Run Artifact Folder Structure
+=============================
+
+artifacts/labview/{run_id}/
+    run.json                          # Complete run report (always written)
+    preflight.json                    # Preflight validation result
+    steps/
+        s00_attach/
+            after.png
+        s01_click_throughput/
+            before.png
+            after.png
+        s02_login/
+            before.png
+            after.png
+        s03_test_type/
+            before.png
+            after_select.png
+            after.png
+        s04_table_position/
+            before.png
+            after.png
+        s05_freq_channel/             # CRITICAL -- has verification evidence
+            before.png
+            after_freq_select.png
+            after_channel_2g.png
+            after_channel_5g.png
+            after_channel_6g.png
+            after.png
+            verify_s05_freq_channel.json
+        s06_select_ap/                # CRITICAL
+            before.png
+            popup.png
+            ap_found.png
+            after.png
+            verify_s06_select_ap.json
+        s07_use_last_ap/
+            before.png
+            firmware_filled.png
+            after.png
+        s08_select_client/
+            before.png
+            popup.png
+            after.png
+        s09_dut_ip/
+            before.png
+            after.png
+        s10_use_last_dut/
+            before.png
+            after.png
+        s11_band_select/              # CRITICAL
+            before.png
+            after_click_1.png
+            after_2g_dropdown.png
+            after_5g_dropdown.png
+            after.png
+            verify_s11_band_select.json
+        s12_chariot_pairs/
+            before.png
+            after.png
+        s13_pass_through/
+            before.png
+            after.png
+        s14_mode/                     # CRITICAL
+            before.png
+            after.png
+            verify_s14_mode.json
+        s15_attenuation/              # CRITICAL
+            before.png
+            after.png
+            verify_s15_attenuation.json
+        s16_design_stage/
+            before.png
+            after.png
+        s17_region/
+            before.png
+            after.png
+        s18_final_start/
+            before.png
+            after.png
+    errors/                           # Only populated on failure
+        diagnosis_{step_name}.json
+        recovery_{step_name}.png

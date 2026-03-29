@@ -1,0 +1,54 @@
+﻿{
+  "success": true,
+  "started_at": "20260329_160724",
+  "finished_at": "20260329_160810",
+  "steps": [
+    {
+      "name": "step_00_attach",
+      "success": true,
+      "elapsed_sec": 0.812,
+      "screenshot": "artifacts/labview/20260329_160724/steps/s00_attach/capture.png",
+      "error": "",
+      "detail": {
+        "attempts": 1,
+        "step_name": "s00_attach",
+        "verified": true,
+        "verification_evidence": {
+          "method": "title_check",
+          "expected": "",
+          "actual": "",
+          "match": true,
+          "confidence": 1.0
+        }
+      }
+    },
+    {
+      "name": "step_01_click_throughput",
+      "success": true,
+      "elapsed_sec": 17.701,
+      "screenshot": "",
+      "error": "",
+      "detail": {
+        "attempts": 1,
+        "step_name": "s01_click_throughput",
+        "verified": true,
+        "verification_evidence": {
+          "method": "none",
+          "expected": "",
+          "actual": "",
+          "match": true,
+          "confidence": 0.0
+        }
+      }
+    }
+  ],
+  "finish_result": {},
+  "config": {
+    "band": "2.4G",
+    "rf_channel_2g": "10",
+    "user_information": "2G test",
+    "mode": "BW20",
+    "ap_name": "RS700"
+  },
+  "error": ""
+}

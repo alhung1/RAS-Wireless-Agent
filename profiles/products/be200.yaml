@@ -1,0 +1,9 @@
+product: INTEL_BE200
+display_name: "Intel Wi-Fi 7 BE200"
+client_name: INTEL_BE200
+ap_name: RS700
+adapter_hint: "Intel(R) Wi-Fi 7 BE200"
+firmware_rev: "V1.0.10.8"
+ap_folder: "E:\\AP"
+client_folder: "E:\\Client"
+exe_path: "C:\\480.builds\\v2.03\\480.000.v2.03.exe"

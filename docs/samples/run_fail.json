@@ -1,0 +1,84 @@
+{
+  "run_id": "20260318_150512_d4e5f6",
+  "profile_name": "BE200 5G Standard",
+  "product_model": "INTEL_BE200",
+  "band": "5G",
+  "channel": "44",
+  "mode": "BW160",
+  "started_at": "2026-03-18T15:05:12.000000+00:00",
+  "finished_at": "2026-03-18T15:08:43.000000+00:00",
+  "dry_run": false,
+  "overall_status": "fail",
+  "failed_step": "s14_mode",
+  "total_steps": 19,
+  "completed_steps": 13,
+  "retry_counts": {
+    "s14_mode": 3
+  },
+  "steps": [
+    {
+      "ok": true,
+      "step_name": "s00_attach",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 0.65
+    },
+    {
+      "ok": false,
+      "step_name": "s14_mode",
+      "attempts": 3,
+      "verified": false,
+      "elapsed_sec": 52.3,
+      "error": "Verification failed: expected='BW160', actual='', method=ocr",
+      "verification_evidence": {
+        "method": "pixel_diff",
+        "expected": "BW160",
+        "actual": "no change (0.1% diff)",
+        "match": false,
+        "confidence": 0.001,
+        "region": [200, 740, 200, 40],
+        "detail": "Dropdown may not have opened -- pixel region unchanged after navigation"
+      },
+      "recovery_actions": [
+        "press_escape",
+        "click_neutral",
+        "dismiss_popups",
+        "refocus_window",
+        "retry_dropdown"
+      ],
+      "artifact_paths": [
+        "artifacts/labview/20260318_150512_d4e5f6/steps/s14_mode/before.png",
+        "artifacts/labview/20260318_150512_d4e5f6/steps/s14_mode/after.png",
+        "artifacts/labview/20260318_150512_d4e5f6/steps/s14_mode/verify_s14_mode.json",
+        "artifacts/labview/20260318_150512_d4e5f6/errors/diagnosis_s14_mode.json"
+      ]
+    }
+  ],
+  "preflight": {
+    "passed": true,
+    "checks": [
+      {"name": "product_loaded", "passed": true, "required": true, "message": "Product adapter: INTEL_BE200"},
+      {"name": "band_supported", "passed": true, "required": true, "message": "Band '5G' supported"},
+      {"name": "mode_valid", "passed": true, "required": true, "message": "Mode 'BW160' valid for 5G"},
+      {"name": "ocr_available", "passed": false, "required": false, "message": "pytesseract unavailable"}
+    ],
+    "failed_required": []
+  },
+  "artifact_paths": [
+    "artifacts/labview/20260318_150512_d4e5f6/run.json",
+    "artifacts/labview/20260318_150512_d4e5f6/preflight.json"
+  ],
+  "config": {
+    "band": "5G",
+    "freq_range": "MLO",
+    "rf_channel_5g": "44",
+    "mode": "BW160",
+    "ap_name": "RS700",
+    "client_name": "INTEL_BE200",
+    "number_of_pairs_5g6g": "16"
+  },
+  "finish_result": null,
+  "errors": [
+    "Step s14_mode failed: Verification failed: expected='BW160', actual='', method=ocr"
+  ]
+}

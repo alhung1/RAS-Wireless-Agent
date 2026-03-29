@@ -1,0 +1,188 @@
+{
+  "run_id": "20260318_143022_a1b2c3",
+  "profile_name": "BE200 2.4G Standard",
+  "product_model": "INTEL_BE200",
+  "band": "2.4G",
+  "channel": "10",
+  "mode": "BW20",
+  "started_at": "2026-03-18T14:30:22.000000+00:00",
+  "finished_at": "2026-03-18T14:35:07.000000+00:00",
+  "dry_run": false,
+  "overall_status": "pass",
+  "failed_step": null,
+  "total_steps": 19,
+  "completed_steps": 19,
+  "retry_counts": {
+    "s07_use_last_ap": 2
+  },
+  "steps": [
+    {
+      "ok": true,
+      "step_name": "s00_attach",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 0.712,
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s00_attach/after.png"
+      ]
+    },
+    {
+      "ok": true,
+      "step_name": "s01_click_throughput",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 10.2,
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s01_click_throughput/before.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s01_click_throughput/after.png"
+      ]
+    },
+    {
+      "ok": true,
+      "step_name": "s05_freq_channel",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 32.1,
+      "verification_evidence": {
+        "method": "ocr",
+        "expected": "10",
+        "actual": "10",
+        "match": true,
+        "confidence": 0.92
+      },
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s05_freq_channel/before.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s05_freq_channel/after_freq_select.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s05_freq_channel/after.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s05_freq_channel/verify_s05_freq_channel.json"
+      ]
+    },
+    {
+      "ok": true,
+      "step_name": "s06_select_ap",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 30.4,
+      "verification_evidence": {
+        "method": "ocr",
+        "expected": "RS700",
+        "actual": "RS700",
+        "match": true,
+        "confidence": 0.88
+      },
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s06_select_ap/before.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s06_select_ap/popup.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s06_select_ap/after.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s06_select_ap/verify_s06_select_ap.json"
+      ]
+    },
+    {
+      "ok": true,
+      "step_name": "s11_band_select",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 26.3,
+      "verification_evidence": {
+        "method": "ocr",
+        "expected": "3",
+        "actual": "3",
+        "match": true,
+        "confidence": 0.85
+      },
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s11_band_select/before.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s11_band_select/after.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s11_band_select/verify_s11_band_select.json"
+      ]
+    },
+    {
+      "ok": true,
+      "step_name": "s14_mode",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 16.9,
+      "verification_evidence": {
+        "method": "pixel_diff",
+        "expected": "BW20",
+        "actual": "changed (4.2% diff)",
+        "match": true,
+        "confidence": 0.042,
+        "region": [200, 740, 200, 40]
+      },
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s14_mode/before.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s14_mode/after.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s14_mode/verify_s14_mode.json"
+      ]
+    },
+    {
+      "ok": true,
+      "step_name": "s15_attenuation",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 15.6,
+      "verification_evidence": {
+        "method": "ocr",
+        "expected": "0",
+        "actual": "0",
+        "match": true,
+        "confidence": 0.95
+      },
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s15_attenuation/before.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s15_attenuation/after.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s15_attenuation/verify_s15_attenuation.json"
+      ]
+    },
+    {
+      "ok": true,
+      "step_name": "s18_final_start",
+      "attempts": 1,
+      "verified": true,
+      "elapsed_sec": 13.3,
+      "artifact_paths": [
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s18_final_start/before.png",
+        "artifacts/labview/20260318_143022_a1b2c3/steps/s18_final_start/after.png"
+      ]
+    }
+  ],
+  "preflight": {
+    "passed": true,
+    "checks": [
+      {"name": "product_loaded", "passed": true, "required": true, "message": "Product adapter: INTEL_BE200"},
+      {"name": "band_supported", "passed": true, "required": true, "message": "Band '2.4G' supported"},
+      {"name": "mode_valid", "passed": true, "required": true, "message": "Mode 'BW20' valid for 2.4G"},
+      {"name": "channel_valid", "passed": true, "required": true, "message": "Channel '10' valid for 2.4G"},
+      {"name": "field_ap_name", "passed": true, "required": true, "message": "ap_name='RS700'"},
+      {"name": "field_client_name", "passed": true, "required": true, "message": "client_name='INTEL_BE200'"},
+      {"name": "template_orange_arrow.png", "passed": true, "required": false, "message": "Found ...templates/orange_arrow.png"},
+      {"name": "exe_exists", "passed": true, "required": true, "message": "EXE: C:\\480.builds\\v2.03\\480.000.v2.03.exe"},
+      {"name": "ocr_available", "passed": false, "required": false, "message": "pytesseract unavailable -- pixel-diff fallback will be used"},
+      {"name": "artifacts_writable", "passed": true, "required": true, "message": "Artifacts dir: artifacts/labview/20260318_143022_a1b2c3"}
+    ],
+    "failed_required": []
+  },
+  "artifact_paths": [
+    "artifacts/labview/20260318_143022_a1b2c3/run.json",
+    "artifacts/labview/20260318_143022_a1b2c3/preflight.json"
+  ],
+  "config": {
+    "band": "2.4G",
+    "freq_range": "MLO",
+    "rf_channel_2g": "10",
+    "rf_channel_5g": "44",
+    "rf_channel_6g": "69",
+    "mode": "BW20",
+    "ap_name": "RS700",
+    "client_name": "INTEL_BE200",
+    "number_of_pairs": "8",
+    "start_atten": "0",
+    "step_size": "3",
+    "steps": "30",
+    "design_stage": "Beta",
+    "region": "US"
+  },
+  "finish_result": null,
+  "errors": []
+}

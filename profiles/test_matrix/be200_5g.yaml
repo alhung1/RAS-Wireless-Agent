@@ -1,0 +1,26 @@
+name: "BE200 5G Standard"
+product: INTEL_BE200
+band: "5G"
+freq_range: MLO
+rf_channel_2g: "0"
+rf_channel_5g: "44"
+rf_channel_6g: "0"
+mode: BW160
+number_of_pairs: "0"
+number_of_pairs_5g6g: "16"
+attenuation:
+  start: "0"
+  step: "3"
+  steps: "30"
+design_stage: Beta
+region: US
+user_information: "5G test"
+ip_dropdown_2g: "3"
+ip_dropdown_5g6g: "3"
+ap_ip: "192.168.1.1"
+timeout_seconds: 14400
+finish_detection:
+  result_file_dir: "D:\\480\\LOG\\RBU"
+  result_file_glob: "*.pdf"
+  timeout_sec: 14400
+  poll_interval_sec: 30

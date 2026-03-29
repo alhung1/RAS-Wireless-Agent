@@ -23,8 +23,18 @@ logger = get_logger("screen_utils")
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+_TESSERACT_PATHS = [
+    os.environ.get("TESSERACT_CMD", ""),
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+]
+
 try:
     import pytesseract
+    for _p in _TESSERACT_PATHS:
+        if _p and os.path.isfile(_p):
+            pytesseract.pytesseract.tesseract_cmd = _p
+            break
     pytesseract.get_tesseract_version()
     _OCR_AVAILABLE = True
 except ImportError:

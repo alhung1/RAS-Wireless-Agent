@@ -9,6 +9,23 @@ Automate end-to-end Wi-Fi throughput testing on a **Netgear RS700** tri-band rou
 
 ---
 
+## Documentation (LabVIEW automation & milestone)
+
+**Start here:** [docs/README.md](docs/README.md)
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md) | Commands: profiles, matrix, resume, single-step, legacy scripts |
+| [docs/LABVIEW_RUNNER.md](docs/LABVIEW_RUNNER.md) | Thin `labview_runner` vs `labview_runner_legacy`, `result.json` / `run.json`, `LV_PRODUCT` |
+| [docs/ARCHITECTURE_SUMMARY.md](docs/ARCHITECTURE_SUMMARY.md) | Layers, native vs legacy steps, what is production-ready |
+| [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | Matrix/finish, dry-run artifacts, `run_single_step` parity |
+| [docs/MIGRATION_LEGACY_STEPS.md](docs/MIGRATION_LEGACY_STEPS.md) | Remaining legacy step buckets (bucket 1: `s00` native) |
+| [docs/DESIGN_MATRIX_FINISH_ORCHESTRATION.md](docs/DESIGN_MATRIX_FINISH_ORCHESTRATION.md) | Next phase: finish detector + matrix between profiles |
+| [docs/RELEASE_NOTES_v1.0.0-labview-refactor.md](docs/RELEASE_NOTES_v1.0.0-labview-refactor.md) | Milestone release notes (v1.0.0-labview-refactor) |
+| [docs/RELEASE_PROPOSAL.md](docs/RELEASE_PROPOSAL.md) | Tag rationale + link to release notes |
+
+---
+
 ## Quick Start (2.4G Test)
 
 ```powershell
@@ -76,10 +93,12 @@ The finish detector monitors `D:\480\LOG\RBU\*.pdf` for test completion.
 
 ## LabVIEW Automation (Part 2 -- 22.8)
 
-The LabVIEW runner drives `480.000.v2.03.exe` through an 18-step throughput testing
+The LabVIEW stack is **config-driven** (`profiles/*.yaml`) with a **`StepEngine`** (preflight, verification, recovery). **`labview_runner.py`** is a thin facade over the engine; implementations and legacy `step_*` helpers live in **`labview_runner_legacy.py`**. See [docs/README.md](docs/README.md).
+
+The runner drives `480.000.v2.03.exe` through a 19-step (0–18) throughput testing
 wizard using PyAutoGUI, Win32 API, and OpenCV HSV color detection.
 
-### 18-Step Wizard Flow
+### 19-Step Wizard Flow (indices 0–18)
 
 | Step | Function | Screen | Action | ~Time |
 |------|----------|--------|--------|-------|
@@ -204,7 +223,8 @@ correct band when the throughput test begins.
 ```
 orchestrator/               Workflow engine, actions, coordination
   local_automation/         LabVIEW GUI automation (PyAutoGUI)
-    labview_runner.py       18-step wizard driver
+    labview_runner.py       Thin facade → StepEngine + legacy result.json
+    labview_runner_legacy.py Legacy step_* implementations, STEP_SEQUENCE
     finish_detector.py      Test completion detection (PDF/UI/log)
     screen_utils.py         Window capture, template matching
     ui_flow.yaml            Flow config, coordinates, band overrides
