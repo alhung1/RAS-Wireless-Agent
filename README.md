@@ -4,7 +4,7 @@ Automate end-to-end Wi-Fi throughput testing on a **Netgear RS700** tri-band rou
 (2.4 GHz / 5 GHz / 6 GHz) across three coordinated machines:
 
 1. **Router GUI control** (22.100) -- Playwright-based SSID/channel/security configuration
-2. **LabVIEW automation** (22.8) -- PyAutoGUI-driven 18-step throughput wizard
+2. **LabVIEW automation** (22.8) -- PyAutoGUI-driven 19-step (0–18) throughput wizard
 3. **WiFi client control** (22.203) -- `netsh wlan` based Intel BE200 connection management
 
 ---
@@ -23,6 +23,9 @@ Automate end-to-end Wi-Fi throughput testing on a **Netgear RS700** tri-band rou
 | [docs/DESIGN_MATRIX_FINISH_ORCHESTRATION.md](docs/DESIGN_MATRIX_FINISH_ORCHESTRATION.md) | Next phase: finish detector + matrix between profiles |
 | [docs/RELEASE_NOTES_v1.0.0-labview-refactor.md](docs/RELEASE_NOTES_v1.0.0-labview-refactor.md) | Milestone release notes (v1.0.0-labview-refactor) |
 | [docs/RELEASE_PROPOSAL.md](docs/RELEASE_PROPOSAL.md) | Tag rationale + link to release notes |
+| [docs/HOW_TO_ADD_PRODUCT.md](docs/HOW_TO_ADD_PRODUCT.md) | New product adapter, YAML, registration |
+| [docs/MIGRATION_STATUS.md](docs/MIGRATION_STATUS.md) | Refactor phases, deferred work, CI hooks |
+| [scripts/README_LOCAL.md](scripts/README_LOCAL.md) | Local calibration / diagnostics / `_archive_local` script layout |
 
 ---
 
@@ -32,13 +35,22 @@ Automate end-to-end Wi-Fi throughput testing on a **Netgear RS700** tri-band rou
 cd "c:\Projects\RAS Wireless Agent"
 .\.venv\Scripts\Activate.ps1
 
-# Run the 18-step LabVIEW wizard and start a 2.4G throughput test
+# Run the LabVIEW wizard and start a 2.4G throughput test
 python scripts/run_24g.py
 ```
 
-This launches LabVIEW `480.000.v2.03.exe`, walks through all 18 wizard steps
+This launches LabVIEW `480.000.v2.03.exe`, walks through the wizard
 (login, AP/client selection, band/mode/attenuation config), and starts the test.
 The finish detector monitors `D:\480\LOG\RBU\*.pdf` for test completion.
+
+**Profile-driven runs** (YAML + `StepEngine`): see [docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md). From repo root, for example:
+
+```powershell
+python scripts/validate_profiles.py --dir profiles/test_matrix/
+python scripts/run_profile.py profiles/test_matrix/be200_2g.yaml --dry-run
+python scripts/run_matrix.py --dir profiles/test_matrix/ --dry-run
+python scripts/smoke_labview_compat.py
+```
 
 ---
 
@@ -223,22 +235,39 @@ correct band when the throughput test begins.
 ```
 orchestrator/               Workflow engine, actions, coordination
   local_automation/         LabVIEW GUI automation (PyAutoGUI)
-    labview_runner.py       Thin facade → StepEngine + legacy result.json
-    labview_runner_legacy.py Legacy step_* implementations, STEP_SEQUENCE
+    labview_runner.py       Thin facade → StepEngine + dual run.json / result.json
+    labview_runner_legacy.py Legacy step_* implementations
+    labview_legacy_report_mapping.py Engine → legacy report mapping
+    engine/                   StepEngine, preflight, matrix_runner, context, report
+    steps/                    Native BaseStep modules + registry (mixed legacy wrappers)
+    products/                 Product adapters (e.g. BE200)
+    profiles/                 YAML loader, schema, validator (in-package)
+    ui/                       Reusable UI primitives, verification, OCR helpers
+    recovery/                 Diagnosis / recovery helpers
     finish_detector.py      Test completion detection (PDF/UI/log)
     screen_utils.py         Window capture, template matching
     ui_flow.yaml            Flow config, coordinates, band overrides
     templates/              Reference screenshots for verification
   actions/                  E2E step implementations
   utils/                    Health checks, retry, timeouts
+profiles/                   Repo-root test matrix + product YAML (see docs/HOW_TO_RUN.md)
 router/                     Playwright-based router UI automation
   netgear_rs700/            RS700 driver, selectors, evidence
   netgear_nighthawk/        Legacy Nighthawk driver (reference)
 router_service/             FastAPI service deployed on 22.100
 worker/                     FastAPI worker service (WiFi, ping)
-scripts/                    Entry-point scripts, deploy tools
-  run_24g.py                Run 2.4G LabVIEW automation
-  run_labview_all_bands.py  Run all bands sequentially
+scripts/                    Entry points, deploy, E2E, LabVIEW helpers
+  run_profile.py            Single profile through StepEngine
+  run_matrix.py             Multiple profiles (matrix)
+  validate_profiles.py      YAML schema + capability checks
+  smoke_labview_compat.py   Imports, --help, fast dry-run smoke
+  run_24g.py                Run 2.4G LabVIEW automation (legacy path)
+  run_labview_all_bands.py  All bands sequentially
+  calibrate_labview.py      Coordinate calibration (tracked)
+  calibration/              Optional UI / step calibration scripts
+  diagnostics/              Click, template, dropdown diagnostics
+  dev/                      Live validation harness, small utilities
+  _archive_local/           Archived one-off debug iterations (see README_LOCAL.md)
   run_e2e_lab.py            Full E2E workflow
   deploy_and_restart.py     Zero-touch deploy to 22.100
   bootstrap_22100.ps1       One-command bootstrap for 22.100
@@ -399,4 +428,10 @@ python scripts/run_24g.py
 
 # All bands
 python scripts/run_labview_all_bands.py
+
+# LabVIEW refactor smoke (imports + dry-run module path)
+python scripts/smoke_labview_compat.py
+
+# Profile YAML validation
+python scripts/validate_profiles.py --dir profiles/test_matrix/
 ```
