@@ -22,4 +22,6 @@ Practical docs for the **refactored, config-driven** LabVIEW stack. Prefer these
 - [samples/example_run.json](samples/example_run.json) — engine `run.json` (abbreviated)
 - [samples/example_result.json](samples/example_result.json) — legacy `result.json` (abbreviated)
 
+**Local calibration / diagnostics scripts** (not primary docs): see [../scripts/README_LOCAL.md](../scripts/README_LOCAL.md).
+
 Other files under `docs/` (e.g. worker deploy) are separate concerns.

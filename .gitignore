@@ -21,3 +21,6 @@ build_info.json
 
 # Local scratch captures (not part of the repo)
 End of testing*.jpg
+
+# Optional: keep archived one-off LabVIEW scripts only on this machine (uncomment to use)
+# scripts/_archive_local/
