@@ -20,7 +20,7 @@ import tempfile
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
 
 from orchestrator.logging.json_logger import get_logger
@@ -36,6 +36,7 @@ os.environ["PLAYWRIGHT_BROWSERS_PATH"] = PW_BROWSERS_DIR
 
 SERVICE_BIND_IP = os.environ.get("SERVICE_BIND_IP", "0.0.0.0")
 SERVICE_MODE = os.environ.get("SERVICE_MODE", "lab")
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 
 app = FastAPI(
     title="Router Control Service",
@@ -84,6 +85,42 @@ async def _validate_bind_ip():
             "Set to 22-domain IP for production.",
             extra={"action": "startup", "step": "bind_warning"},
         )
+
+
+@app.on_event("startup")
+async def _validate_admin_api_key():
+    """Validate ADMIN_API_KEY is set in production mode."""
+    if SERVICE_MODE != "lab" and not ADMIN_API_KEY:
+        logger.error(
+            "ADMIN_API_KEY not set in production mode. "
+            "Set ADMIN_API_KEY in .env for admin endpoints.",
+            extra={"action": "startup", "step": "api_key_rejected"},
+        )
+        sys.exit(1)
+    if SERVICE_MODE == "lab" and not ADMIN_API_KEY:
+        logger.warning(
+            "ADMIN_API_KEY not set (lab mode). "
+            "Admin endpoints are unprotected.",
+            extra={"action": "startup", "step": "api_key_warning"},
+        )
+
+
+async def require_admin_key(x_api_key: str = Header(None)) -> str:
+    """Dependency: verify X-API-Key header matches ADMIN_API_KEY.
+
+    In lab mode, allows access if no key is configured.
+    In production mode, key is required and must match.
+    """
+    if not ADMIN_API_KEY:
+        if SERVICE_MODE != "lab":
+            raise HTTPException(status_code=403, detail="ADMIN_API_KEY not configured")
+        # Lab mode with no key: allow
+        return ""
+
+    if x_api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid or missing X-API-Key header")
+
+    return x_api_key
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +340,7 @@ class RestartResponse(BaseModel):
 
 
 @app.post("/admin/update", response_model=UpdateResponse)
-async def admin_update(req: UpdateRequest):
+async def admin_update(req: UpdateRequest, _: str = Depends(require_admin_key)):
     """Download new code from orchestrator and replace the install directory.
 
     Steps:
@@ -393,7 +430,7 @@ async def admin_version():
 
 
 @app.post("/admin/restart", response_model=RestartResponse)
-async def admin_restart():
+async def admin_restart(_: str = Depends(require_admin_key)):
     """Restart the service by stopping and re-starting the scheduled task."""
     try:
         _schedule_restart()
@@ -464,7 +501,7 @@ class FixPlaywrightResponse(BaseModel):
 
 
 @app.post("/admin/fix-playwright", response_model=FixPlaywrightResponse)
-async def admin_fix_playwright():
+async def admin_fix_playwright(_: str = Depends(require_admin_key)):
     """Copy Playwright browsers to the install-local .playwright directory.
 
     When the service runs as SYSTEM, Playwright looks in SYSTEM's LOCALAPPDATA
@@ -521,6 +558,9 @@ async def admin_fix_playwright():
 @app.get("/debug/probe-urls")
 async def debug_probe_urls():
     """Fast URL probe: test candidate wireless page URLs via httpx from 22.100."""
+    if SERVICE_MODE == "production":
+        raise HTTPException(status_code=404, detail="Debug endpoints disabled in production mode")
+
     import httpx as _httpx
 
     user = ROUTER_USER
@@ -581,6 +621,9 @@ async def debug_probe_urls():
 @app.get("/debug/fetch-page")
 async def debug_fetch_page(url: str = "http://192.168.1.1/WLG_wireless.htm"):
     """Fetch raw HTML from a router page via httpx (with Basic Auth)."""
+    if SERVICE_MODE == "production":
+        raise HTTPException(status_code=404, detail="Debug endpoints disabled in production mode")
+
     import httpx as _httpx
 
     user = ROUTER_USER
@@ -599,6 +642,9 @@ async def debug_fetch_page(url: str = "http://192.168.1.1/WLG_wireless.htm"):
 @app.get("/debug/topframe-html")
 async def debug_topframe_html():
     """Dump the topframe HTML after login for navigation analysis."""
+    if SERVICE_MODE == "production":
+        raise HTTPException(status_code=404, detail="Debug endpoints disabled in production mode")
+
     from playwright.async_api import async_playwright
 
     user = ROUTER_USER
@@ -657,6 +703,9 @@ async def debug_explore_basic_wireless():
       4. If sidebar click fails, try direct URL probing from 22.100
       5. Dump all form fields from the resulting page
     """
+    if SERVICE_MODE == "production":
+        raise HTTPException(status_code=404, detail="Debug endpoints disabled in production mode")
+
     from playwright.async_api import async_playwright
     import base64
 
