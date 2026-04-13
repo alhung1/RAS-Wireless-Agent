@@ -28,6 +28,11 @@ from orchestrator.local_automation.profiles.loader import (
     find_product_profile_path,
 )
 from orchestrator.local_automation.profiles.schema import TestProfile
+from orchestrator.local_automation.engine.handoff import (
+    HandoffResult,
+    ProfilePhase,
+    run_finish_and_handoff,
+)
 from orchestrator.local_automation.steps.registry import build_default_sequence
 from orchestrator.local_automation.ui.detection import ocr_available
 
@@ -50,6 +55,7 @@ class MatrixEntry:
     failed_step: Optional[str] = None
     error: Optional[str] = None
     report_path: str = ""
+    handoff: Optional[HandoffResult] = None
 
     def to_dict(self) -> dict:
         d = {
@@ -70,6 +76,8 @@ class MatrixEntry:
             d["error"] = self.error
         if self.report_path:
             d["report_path"] = self.report_path
+        if self.handoff:
+            d["handoff"] = self.handoff.to_dict()
         return d
 
 
@@ -105,6 +113,8 @@ def run_matrix(
     dry_run: bool = False,
     stop_at_step: int = 18,
     profiles_root: str | None = None,
+    wait_for_finish: bool = False,
+    between_profiles: str = "noop",
 ) -> MatrixSummary:
     """Run multiple test profiles sequentially.
 
@@ -243,6 +253,34 @@ def run_matrix(
             summary.passed += 1
         else:
             summary.failed += 1
+
+        # --- Finish wait + between-profiles handoff ---
+        if entry.status.startswith("pass"):
+            next_name = ""
+            if idx + 1 < len(profile_paths):
+                try:
+                    next_prof = load_test_profile(profile_paths[idx + 1])
+                    next_name = next_prof.name
+                except Exception:
+                    next_name = os.path.basename(profile_paths[idx + 1])
+
+            handoff_result = run_finish_and_handoff(
+                profile_name=profile.name,
+                artifacts_dir=run_ad,
+                wait_for_finish_enabled=wait_for_finish,
+                finish_config=None,  # LIVE: build from profile.finish_detection
+                initial_files=None,
+                between_hook_name=between_profiles,
+                next_profile_name=next_name,
+                dry_run=dry_run,
+            )
+            entry.handoff = handoff_result
+
+            if not handoff_result.ready_for_next and next_name:
+                entry.status = "handoff_failed"
+                entry.error = handoff_result.error or "Handoff not ready"
+                summary.passed -= 1
+                summary.failed += 1
 
         logger.info(
             "Matrix [%d/%d]: %s -> %s (%.1fs)",
