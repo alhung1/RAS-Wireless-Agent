@@ -31,6 +31,7 @@ from orchestrator.local_automation.profiles.schema import TestProfile
 from orchestrator.local_automation.engine.handoff import (
     HandoffResult,
     ProfilePhase,
+    TERMINAL_FAILURE_PHASES,
     run_finish_and_handoff,
 )
 from orchestrator.local_automation.steps.registry import build_default_sequence
@@ -93,8 +94,13 @@ class MatrixSummary:
     stop_on_failure: bool = True
     entries: list[MatrixEntry] = field(default_factory=list)
 
+    wait_for_finish: bool = False
+    between_profiles: str = "noop"
+    aborted: bool = False
+    abort_reason: str = ""
+
     def to_dict(self) -> dict:
-        return {
+        d = {
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "total_profiles": self.total_profiles,
@@ -102,8 +108,14 @@ class MatrixSummary:
             "failed": self.failed,
             "skipped": self.skipped,
             "stop_on_failure": self.stop_on_failure,
+            "wait_for_finish": self.wait_for_finish,
+            "between_profiles": self.between_profiles,
             "entries": [e.to_dict() for e in self.entries],
         }
+        if self.aborted:
+            d["aborted"] = True
+            d["abort_reason"] = self.abort_reason
+        return d
 
 
 def run_matrix(
@@ -129,6 +141,8 @@ def run_matrix(
         started_at=datetime.now(timezone.utc).isoformat(),
         total_profiles=len(profile_paths),
         stop_on_failure=stop_on_failure,
+        wait_for_finish=wait_for_finish,
+        between_profiles=between_profiles,
     )
 
     for idx, prof_path in enumerate(profile_paths):
@@ -281,6 +295,10 @@ def run_matrix(
                 entry.error = handoff_result.error or "Handoff not ready"
                 summary.passed -= 1
                 summary.failed += 1
+
+                if handoff_result.phase == ProfilePhase.MATRIX_ABORTED:
+                    summary.aborted = True
+                    summary.abort_reason = handoff_result.error or "Matrix aborted"
 
         logger.info(
             "Matrix [%d/%d]: %s -> %s (%.1fs)",

@@ -3,13 +3,26 @@
 This module provides:
   - ProfilePhase enum for fine-grained matrix orchestration states
   - HandoffResult dataclass capturing finish + readiness outcome
+  - FinishOutcome for classifying finish_detector results
   - BetweenProfilesHook protocol and implementations (noop, assert_main, restart)
   - run_finish_and_handoff() orchestration function
 
-**Skeleton status:** The orchestration flow and data structures are complete.
-Live integration (actual wait_for_finish, WindowManager, subprocess restart)
-requires a Windows environment with LabVIEW. Each hook's live code path is
-clearly marked with ``# LIVE INTEGRATION`` comments.
+**Implementation status (repo-only skeleton):**
+
+  COMPLETED (testable without live environment):
+  - All 10 ProfilePhase states with transitions
+  - HandoffResult serialization to/from dict
+  - classify_finish_outcome() for mapping FinishResult → phase
+  - 3 between-profiles hooks (noop, assert_main_screen, restart)
+  - Escalation: assert_main_screen failure → auto-retry with restart
+  - Dry-run simulation of all paths
+  - MATRIX_ABORTED production on unrecoverable handoff failure
+
+  REQUIRES LIVE INTEGRATION (Windows + LabVIEW on 22.8):
+  - Actual wait_for_finish() call with real FinishConfig
+  - WindowManager.find_window() in assert_main_screen
+  - subprocess taskkill/launch in restart_labview
+  - Real PDF/log/UI finish detection
 """
 from __future__ import annotations
 
@@ -26,8 +39,20 @@ logger = get_logger("handoff")
 class ProfilePhase(str, enum.Enum):
     """Fine-grained phase tracking for each profile in a matrix run.
 
-    These phases represent the lifecycle of a single profile within
-    the matrix, from start to readiness for the next profile.
+    State machine:
+        PROFILE_STARTED
+          → PROFILE_ENGINE_PASSED  (engine.run() succeeded)
+            → WAITING_FOR_FINISH   (if finish wait enabled)
+              → FINISH_PASS        (finish detected)
+              → FINISH_TIMEOUT     (timeout without detection)
+              → FINISH_ARTIFACTS_MISSING  (finished but expected files absent)
+            → FINISH_PASS          (if finish wait disabled, treat engine pass as done)
+              → READY_FOR_NEXT_PROFILE  (hook succeeded or last profile)
+              → RESTART_REQUIRED   (hook failed, restart may help)
+                → READY_FOR_NEXT_PROFILE  (restart succeeded)
+                → HANDOFF_FAILED   (restart also failed)
+              → HANDOFF_FAILED     (restart hook itself failed)
+            → MATRIX_ABORTED       (unrecoverable; matrix should stop)
     """
     PROFILE_STARTED = "profile_started"
     PROFILE_ENGINE_PASSED = "profile_engine_passed"
@@ -39,6 +64,15 @@ class ProfilePhase(str, enum.Enum):
     READY_FOR_NEXT_PROFILE = "ready_for_next_profile"
     HANDOFF_FAILED = "handoff_failed"
     MATRIX_ABORTED = "matrix_aborted"
+
+
+# Terminal phases that indicate no further progress is possible
+TERMINAL_FAILURE_PHASES = frozenset({
+    ProfilePhase.FINISH_TIMEOUT,
+    ProfilePhase.FINISH_ARTIFACTS_MISSING,
+    ProfilePhase.HANDOFF_FAILED,
+    ProfilePhase.MATRIX_ABORTED,
+})
 
 
 @dataclass
@@ -57,7 +91,7 @@ class HandoffResult:
     simulated: bool = False
 
     def to_dict(self) -> dict:
-        d = {
+        d: dict[str, Any] = {
             "phase": self.phase.value,
             "ready_for_next": self.ready_for_next,
         }
@@ -78,6 +112,40 @@ class HandoffResult:
         if self.simulated:
             d["simulated"] = True
         return d
+
+
+# ---------------------------------------------------------------------------
+# Finish outcome classification (testable without live imports)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FinishOutcome:
+    """Portable representation of a finish detector result.
+
+    This avoids importing finish_detector.FinishResult (which pulls in
+    Windows-only dependencies) while preserving all classification data.
+    """
+    finished: bool = False
+    method: str = ""
+    elapsed_sec: float = 0.0
+    detail: str = ""
+    timed_out: bool = False
+    failed_fast: bool = False
+
+
+def classify_finish_outcome(outcome: FinishOutcome) -> ProfilePhase:
+    """Map a finish outcome to the appropriate ProfilePhase.
+
+    This is a pure function — no I/O, no live dependencies.
+    """
+    if outcome.timed_out:
+        return ProfilePhase.FINISH_TIMEOUT
+    if outcome.failed_fast:
+        return ProfilePhase.FINISH_ARTIFACTS_MISSING
+    if outcome.finished:
+        return ProfilePhase.FINISH_PASS
+    # Not finished, not timed out — shouldn't happen in normal flow
+    return ProfilePhase.FINISH_ARTIFACTS_MISSING
 
 
 # ---------------------------------------------------------------------------
@@ -149,16 +217,13 @@ def restart_labview_hook(
     # import subprocess
     # from orchestrator.local_automation.ui.window_manager import WindowManager
     #
-    # # Kill existing LabVIEW
     # subprocess.run(["taskkill", "/f", "/im", "480.000.v2.03.exe"],
     #                capture_output=True)
     # time.sleep(3)
     #
-    # # Launch new instance
     # subprocess.Popen([run_config.exe_path], shell=False)
     # time.sleep(10)
     #
-    # # Verify main window
     # wm = WindowManager()
     # hwnd = wm.find_window(retries=5, interval=3)
     # if hwnd:
@@ -200,6 +265,7 @@ def run_finish_and_handoff(
     between_hook_name: str = "noop",
     next_profile_name: str = "",
     dry_run: bool = False,
+    finish_outcome: Optional[FinishOutcome] = None,
 ) -> HandoffResult:
     """Run the finish-wait + between-profiles handoff for one profile.
 
@@ -209,12 +275,14 @@ def run_finish_and_handoff(
     Args:
         profile_name: Current profile being finished.
         artifacts_dir: Artifact directory for this profile run.
-        wait_for_finish_enabled: Whether to call wait_for_finish.
-        finish_config: FinishConfig instance (from finish_detector module).
+        wait_for_finish_enabled: Whether to wait for test completion.
+        finish_config: FinishConfig instance (for live integration).
         initial_files: Files present before the test started.
         between_hook_name: Hook name from HOOK_REGISTRY.
         next_profile_name: Name of the next profile (empty if last).
         dry_run: If True, simulate all steps.
+        finish_outcome: Pre-built FinishOutcome for testing/simulation.
+            If provided, used instead of calling wait_for_finish.
 
     Returns:
         HandoffResult with final phase and details.
@@ -236,7 +304,15 @@ def run_finish_and_handoff(
             extra={"action": "handoff", "step": "finish_wait"},
         )
 
-        if dry_run:
+        if finish_outcome is not None:
+            # Injected outcome (for testing or simulation)
+            result.phase = classify_finish_outcome(finish_outcome)
+            result.finish_method = finish_outcome.method
+            result.finish_elapsed_sec = finish_outcome.elapsed_sec
+            result.finish_detail = finish_outcome.detail
+            result.finish_timed_out = finish_outcome.timed_out
+            result.finish_failed_fast = finish_outcome.failed_fast
+        elif dry_run:
             result.phase = ProfilePhase.FINISH_PASS
             result.finish_method = "simulated"
             result.finish_detail = "dry-run: finish wait skipped"
@@ -244,22 +320,20 @@ def run_finish_and_handoff(
         else:
             # LIVE INTEGRATION:
             # from orchestrator.local_automation.finish_detector import (
-            #     wait_for_finish, FinishConfig,
+            #     wait_for_finish as _wait, FinishConfig,
             # )
-            # finish_result = wait_for_finish(finish_config, artifacts_dir, initial_files)
-            #
-            # result.finish_method = finish_result.method
-            # result.finish_elapsed_sec = finish_result.elapsed_sec
-            # result.finish_detail = finish_result.detail
-            # result.finish_timed_out = finish_result.timed_out
-            # result.finish_failed_fast = finish_result.failed_fast
-            #
-            # if finish_result.timed_out:
-            #     result.phase = ProfilePhase.FINISH_TIMEOUT
-            # elif finish_result.finished:
-            #     result.phase = ProfilePhase.FINISH_PASS
-            # else:
-            #     result.phase = ProfilePhase.FINISH_ARTIFACTS_MISSING
+            # fr = _wait(finish_config, artifacts_dir, initial_files)
+            # outcome = FinishOutcome(
+            #     finished=fr.finished, method=fr.method,
+            #     elapsed_sec=fr.elapsed_sec, detail=fr.detail,
+            #     timed_out=fr.timed_out, failed_fast=fr.failed_fast,
+            # )
+            # result.phase = classify_finish_outcome(outcome)
+            # result.finish_method = outcome.method
+            # result.finish_elapsed_sec = outcome.elapsed_sec
+            # result.finish_detail = outcome.detail
+            # result.finish_timed_out = outcome.timed_out
+            # result.finish_failed_fast = outcome.failed_fast
 
             result.phase = ProfilePhase.FINISH_PASS
             result.finish_method = "not_integrated"
@@ -284,24 +358,58 @@ def run_finish_and_handoff(
             result.phase = ProfilePhase.READY_FOR_NEXT_PROFILE
             result.ready_for_next = True
         else:
-            # Hook failed — may need restart
+            # Hook failed — attempt escalation to restart if not already restart
             if between_hook_name != "restart":
+                logger.info(
+                    "Hook '%s' failed, escalating to restart: %s",
+                    between_hook_name, hook_detail,
+                    extra={"action": "handoff", "step": "escalate_restart"},
+                )
                 result.phase = ProfilePhase.RESTART_REQUIRED
-                result.error = f"Hook '{between_hook_name}' failed: {hook_detail}"
+
+                # Auto-escalate: try restart hook
+                restart_fn = get_hook("restart")
+                restart_ok, restart_detail = restart_fn(
+                    artifacts_dir, next_profile_name, dry_run=dry_run
+                )
+                result.restart_performed = True
+                result.restart_success = restart_ok
+
+                if restart_ok:
+                    result.phase = ProfilePhase.READY_FOR_NEXT_PROFILE
+                    result.ready_for_next = True
+                else:
+                    result.phase = ProfilePhase.HANDOFF_FAILED
+                    result.error = (
+                        f"Hook '{between_hook_name}' failed ({hook_detail}); "
+                        f"restart also failed ({restart_detail})"
+                    )
             else:
                 result.phase = ProfilePhase.HANDOFF_FAILED
                 result.restart_performed = True
                 result.restart_success = False
                 result.error = f"Restart failed: {hook_detail}"
+
+    elif next_profile_name and result.phase in TERMINAL_FAILURE_PHASES:
+        # Finish failed and there's a next profile → abort
+        result.phase = ProfilePhase.MATRIX_ABORTED
+        result.ready_for_next = False
+        if not result.error:
+            result.error = (
+                f"Cannot proceed to '{next_profile_name}': "
+                f"finish phase was {result.phase.value}"
+            )
+
     elif result.phase == ProfilePhase.FINISH_PASS:
         # Last profile — no handoff needed
         result.phase = ProfilePhase.READY_FOR_NEXT_PROFILE
         result.ready_for_next = True
+
     else:
-        # Finish failed — abort
-        if result.finish_timed_out:
-            result.error = f"Finish timed out for {profile_name}"
+        # Finish failed, last profile — just report
         result.ready_for_next = False
+        if result.finish_timed_out and not result.error:
+            result.error = f"Finish timed out for {profile_name}"
 
     logger.info(
         "Handoff complete: %s -> phase=%s ready=%s",
