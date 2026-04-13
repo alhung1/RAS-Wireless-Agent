@@ -43,7 +43,7 @@ def validate_one(path: str) -> bool:
         for e in schema_errors:
             print(f"  [SCHEMA FAIL] {e}")
         return False
-    print(f"  [SCHEMA OK]")
+    print("  [SCHEMA OK]")
 
     try:
         profile = load_test_profile(path)

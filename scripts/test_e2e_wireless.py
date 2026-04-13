@@ -288,7 +288,7 @@ def run_test(base_url: str, worker_url: Optional[str] = None) -> dict:
                 print(f"    [FAIL] {f['field']}: expected {f['expected']!r}, "
                       f"got {f['actual']!r}")
             if not failures:
-                print(f"    [OK] All fields match")
+                print("    [OK] All fields match")
 
         readback_ok = len(all_failures) == 0
         log_step("verify_test_config", readback_ok, {
@@ -386,7 +386,7 @@ def run_test(base_url: str, worker_url: Optional[str] = None) -> dict:
                 print(f"    [FAIL] ssid: expected {info.get('ssid')!r}, "
                       f"got {actual.get('ssid')!r}")
             else:
-                print(f"    [OK] SSID restored")
+                print("    [OK] SSID restored")
 
         final_ok = len(restore_failures) == 0
         log_step("verify_restore", final_ok, {

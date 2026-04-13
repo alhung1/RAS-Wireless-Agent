@@ -233,7 +233,7 @@ def main():
 
     # Step 1: build zip
     zip_path = os.path.join(PROJECT_ROOT, DEPLOY_ZIP)
-    print(f"\n[1/4] Building deploy zip ...")
+    print("\n[1/4] Building deploy zip ...")
     build_zip(zip_path)
     print(f"  OK  {DEPLOY_ZIP} ({os.path.getsize(zip_path) / 1024 / 1024:.1f} MB)")
 
@@ -260,7 +260,7 @@ def main():
 
         # Step 4: wait for service
         if restart:
-            print(f"\n[4/4] Waiting for service to restart ...")
+            print("\n[4/4] Waiting for service to restart ...")
             if wait_for_health(remote_host, remote_port):
                 print("  OK  Service is back up and healthy!")
             else:

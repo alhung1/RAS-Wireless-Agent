@@ -30,7 +30,6 @@ def _ts() -> str:
 
 def list_windows(title_filter: str = "", pid_filter: int = 0) -> list[dict]:
     """Enumerate all visible top-level windows."""
-    import ctypes
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32

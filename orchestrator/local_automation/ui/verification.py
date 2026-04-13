@@ -287,7 +287,7 @@ def execute_verification(
             return VerificationEvidence(
                 method="pixel_diff_inconclusive",
                 expected=spec.expected_text or f">={spec.min_diff_pct}% change",
-                actual=f"0.0% diff",
+                actual="0.0% diff",
                 match=True,
                 confidence=0.0,
                 screenshot_path=screenshot_path,

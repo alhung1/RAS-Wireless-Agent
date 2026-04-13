@@ -231,7 +231,7 @@ def run_test(
         if connect_ok:
             print(f"  Connected: ssid={v.get('connected_ssid')!r}, ip={v.get('ipv4')}, rssi={v.get('rssi')}")
             if not connect_result.get("success"):
-                print(f"  Note: verify timed out (no gateway for ping), but SSID+IP OK")
+                print("  Note: verify timed out (no gateway for ping), but SSID+IP OK")
         else:
             print(f"  ERROR: ssid_match={ssid_match}, ip_set={ip_set}, error={connect_result.get('error')}")
             report["failure_diag"] = _collect_failure_artifacts(worker_url)

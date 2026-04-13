@@ -17,11 +17,15 @@ Practical docs for the **refactored, config-driven** LabVIEW stack. Prefer these
 | [DESIGN_MATRIX_FINISH_ORCHESTRATION.md](DESIGN_MATRIX_FINISH_ORCHESTRATION.md) | Next phase: matrix + finish + inter-profile reset |
 | [MIGRATION_LEGACY_STEPS.md](MIGRATION_LEGACY_STEPS.md) | Legacy step buckets; bucket 1 implemented |
 
-**Sample report shapes**
+**Sample report shapes** (TODO: add `docs/samples/` with abbreviated examples)
 
-- [samples/example_run.json](samples/example_run.json) — engine `run.json` (abbreviated)
-- [samples/example_result.json](samples/example_result.json) — legacy `result.json` (abbreviated)
+<!-- samples/example_run.json and samples/example_result.json are pending creation -->
+
+**Other docs under `docs/`:**
+
+| Document | Purpose |
+|----------|---------|
+| [Safe_Upgrade_and_Deploy.md](Safe_Upgrade_and_Deploy.md) | Upgrade and deploy procedures |
+| [Deploy_Worker_22203.md](Deploy_Worker_22203.md) | Worker (22.203) deployment guide |
 
 **Local calibration / diagnostics scripts** (not primary docs): see [../scripts/README_LOCAL.md](../scripts/README_LOCAL.md).
-
-Other files under `docs/` (e.g. worker deploy) are separate concerns.

@@ -25,6 +25,10 @@ Automate end-to-end Wi-Fi throughput testing on a **Netgear RS700** tri-band rou
 | [docs/RELEASE_PROPOSAL.md](docs/RELEASE_PROPOSAL.md) | Tag rationale + link to release notes |
 | [docs/HOW_TO_ADD_PRODUCT.md](docs/HOW_TO_ADD_PRODUCT.md) | New product adapter, YAML, registration |
 | [docs/MIGRATION_STATUS.md](docs/MIGRATION_STATUS.md) | Refactor phases, deferred work, CI hooks |
+| [docs/Safe_Upgrade_and_Deploy.md](docs/Safe_Upgrade_and_Deploy.md) | Upgrade and deploy procedures |
+| [docs/Deploy_Worker_22203.md](docs/Deploy_Worker_22203.md) | Worker (22.203) deployment guide |
+| [docs/ACCOMPLISHMENT_ENGINEERING.md](docs/ACCOMPLISHMENT_ENGINEERING.md) | Technical handoff summary |
+| [docs/ACCOMPLISHMENT_STAKEHOLDER.md](docs/ACCOMPLISHMENT_STAKEHOLDER.md) | Stakeholder / deck summary |
 | [scripts/README_LOCAL.md](scripts/README_LOCAL.md) | Local calibration / diagnostics / `_archive_local` script layout |
 
 ---

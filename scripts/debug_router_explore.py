@@ -50,7 +50,7 @@ async def explore():
             inputs.append(f"name={name} type={typ} id={iid}")
         print(f"  Input fields: {inputs}")
 
-        print(f"\n  HTML (first 3000 chars):")
+        print("\n  HTML (first 3000 chars):")
         print(html2[:3000])
     else:
         print("  No Cancel button found")
