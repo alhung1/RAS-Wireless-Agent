@@ -17,9 +17,12 @@ Practical docs for the **refactored, config-driven** LabVIEW stack. Prefer these
 | [DESIGN_MATRIX_FINISH_ORCHESTRATION.md](DESIGN_MATRIX_FINISH_ORCHESTRATION.md) | Next phase: matrix + finish + inter-profile reset |
 | [MIGRATION_LEGACY_STEPS.md](MIGRATION_LEGACY_STEPS.md) | Legacy step buckets; bucket 1 implemented |
 
-**Sample report shapes** (TODO: add `docs/samples/` with abbreviated examples)
+**Sample report shapes**
 
-<!-- samples/example_run.json and samples/example_result.json are pending creation -->
+- [samples/example_run.json](samples/example_run.json) — engine `run.json` (abbreviated)
+- [samples/example_result.json](samples/example_result.json) — legacy `result.json` (abbreviated)
+- [samples/run_pass.json](samples/run_pass.json) — full passing run
+- [samples/run_fail.json](samples/run_fail.json) — run with failure
 
 **Other docs under `docs/`:**
 
