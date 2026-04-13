@@ -60,4 +60,4 @@ jobs:
         with:
           python-version: "3.10"
       - run: pip install -r requirements.txt
-      - run: python scripts/validate_profiles.py --dir profiles/test_matrix/
+      - run: python scripts/validate_profiles.py --all

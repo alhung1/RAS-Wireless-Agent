@@ -305,3 +305,42 @@ class TestFinishDetectionConfig:
         assert profile.finish_detection.result_file_dir == r"D:\custom\logs"
         assert profile.finish_detection.result_file_glob == "result_*.txt"
         assert profile.finish_detection.timeout_sec == 3600
+
+
+# ---------------------------------------------------------------------------
+# Product profile validation tests
+# ---------------------------------------------------------------------------
+
+class TestProductProfileValidation:
+    """Tests for product profile schema validation via validate_product_profile."""
+
+    def test_valid_product_profile_be200_yaml(self):
+        """Real be200.yaml product profile passes schema validation."""
+        yaml_path = PRODUCTS_DIR / "be200.yaml"
+        assert yaml_path.exists(), f"Product profile not found: {yaml_path}"
+
+        with open(yaml_path, "r") as f:
+            raw = yaml.safe_load(f)
+        ok, errors = validate_product_profile(raw)
+        assert ok, f"Expected valid, got errors: {errors}"
+
+    def test_product_profile_missing_required_field(self):
+        """Product profile without 'product' field fails validation."""
+        raw = {"display_name": "Test Product", "client_name": "TEST"}
+        ok, errors = validate_product_profile(raw)
+        assert not ok
+        assert any("product" in e for e in errors)
+
+    def test_product_profile_minimal_valid(self):
+        """Minimal valid product profile with only required fields."""
+        raw = {"product": "TEST_DEVICE", "client_name": "TEST_DEVICE"}
+        ok, errors = validate_product_profile(raw)
+        assert ok, f"Expected valid, got errors: {errors}"
+
+    def test_product_profile_defaults_applied(self):
+        """Default values are applied for optional fields."""
+        raw = {"product": "TEST_DEVICE", "client_name": "TEST_DEVICE"}
+        pp = ProductProfileData(**raw)
+        assert pp.ap_name == "RS700"
+        assert pp.ap_folder == r"E:\AP"
+        assert pp.client_folder == r"E:\Client"
