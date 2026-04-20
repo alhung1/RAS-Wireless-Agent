@@ -11,9 +11,11 @@ When ``None``, the module-level ``ARTIFACTS_DIR`` is used.
 from __future__ import annotations
 
 import asyncio
+import glob
 import json
 import os
 import time
+from dataclasses import asdict, fields
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -28,6 +30,7 @@ from orchestrator.utils.health import (
     check_router_status,
 )
 from orchestrator.workflow_schema import (
+    ConnectOptions,
     BandWifiConfig,
     RouterConfig,
     WorkerTarget,
@@ -309,6 +312,7 @@ SECURITY_TO_AUTH: dict[str, tuple[str, str]] = {
     "wpa3": ("WPA3SAE", "AES"),
     "auto-wpa3": ("WPA3SAE", "AES"),
     "disable": ("open", "none"),
+    "open": ("open", "none"),
 }
 
 
@@ -318,19 +322,32 @@ async def step_connect_workers(
     password: str,
     interface: Optional[str] = None,
     security: str = "wpa2",
+    connect_options: Optional[ConnectOptions] = None,
     artifacts_dir: Optional[str] = None,
 ) -> dict[str, Any]:
     """POST /wifi/connect on all workers in parallel."""
     adir = _resolve_artifacts(artifacts_dir)
+    connect_options = connect_options or ConnectOptions()
     auth, cipher = SECURITY_TO_AUTH.get(security, ("WPA2PSK", "AES"))
+    if connect_options.auth:
+        auth = connect_options.auth
+    if connect_options.cipher:
+        cipher = connect_options.cipher
     payload: dict[str, Any] = {
         "ssid": ssid,
         "password": password,
         "auth": auth,
         "cipher": cipher,
     }
-    if interface:
-        payload["interface"] = interface
+    if connect_options.interface or interface:
+        payload["interface"] = connect_options.interface or interface
+    if connect_options.adapter_hint:
+        payload["adapter_hint"] = connect_options.adapter_hint
+    if connect_options.static_ip:
+        payload["static_ip"] = connect_options.static_ip
+        payload["mask"] = connect_options.mask
+    if connect_options.band:
+        payload["band"] = connect_options.band
 
     tasks = [_call_worker("POST", w, "/wifi/connect", payload) for w in workers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -359,6 +376,13 @@ async def step_connect_workers(
             extra={"action": "connect_workers", "step": "fail"},
         )
     return result
+
+
+def _snapshot_finish_files(finish_cfg: Any) -> set[str]:
+    if not getattr(finish_cfg, "result_file_dir", "") or not os.path.isdir(finish_cfg.result_file_dir):
+        return set()
+    pattern = os.path.join(finish_cfg.result_file_dir, finish_cfg.result_file_glob)
+    return set(glob.glob(pattern))
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +620,7 @@ def build_final_report(
         pass
 
     router_result = None
+    labview_result = None
     for sr in step_results:
         if sr.get("action") == "router_apply":
             router_result = {
@@ -603,13 +628,19 @@ def build_final_report(
                 for k in ("detected_bands", "configured_bands", "error")
                 if sr.get(k) is not None
             }
-            break
+        elif sr.get("action") in {"labview_test", "run_labview_test"}:
+            labview_result = {
+                k: sr.get(k)
+                for k in ("success", "profile", "band", "mode", "steps_completed", "error", "artifacts_dir", "finish")
+                if sr.get(k) is not None
+            }
 
     report = {
         "workflow": workflow_name,
         "success": overall_success,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "router_apply": router_result,
+        "labview": labview_result,
         "workers": worker_summary,
         "failed_step": failed_step,
         "steps": step_results,
@@ -703,4 +734,88 @@ async def step_run_labview_test(
         result["finish"] = report.finish_result
 
     _save_artifact(f"labview_{band}_result.json", result, adir)
+    return result
+
+
+async def step_run_labview_profile(
+    profile_path: str,
+    profiles_root: Optional[str] = None,
+    artifacts_dir: Optional[str] = None,
+) -> dict[str, Any]:
+    """Run a LabVIEW profile YAML through the compatibility facade.
+
+    This bridges workflow YAML orchestration with the profile-driven LabVIEW
+    runner so the full router -> worker -> LabVIEW flow can live in a single
+    workflow definition.
+    """
+    adir = _resolve_artifacts(artifacts_dir)
+
+    try:
+        from orchestrator.local_automation.labview_runner import RunConfig as LegacyRunConfig
+        from orchestrator.local_automation.labview_runner import run_labview_flow
+        from orchestrator.local_automation.profiles.loader import (
+            find_product_profile_path,
+            get_product_adapter,
+            load_product_profile,
+            load_test_profile,
+            resolve_run_config,
+        )
+    except ImportError as exc:
+        return {"success": False, "error": f"labview profile runner not available: {exc}"}
+
+    try:
+        profile = load_test_profile(profile_path)
+    except Exception as exc:
+        return {"success": False, "error": f"Failed to load profile {profile_path!r}: {exc}"}
+
+    product = get_product_adapter(profile.product)
+    if not product:
+        return {
+            "success": False,
+            "error": f"Product adapter not found for profile product {profile.product!r}",
+        }
+
+    product_profile = None
+    pp_path = find_product_profile_path(profile.product, profiles_root)
+    if pp_path:
+        try:
+            product_profile = load_product_profile(pp_path)
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": f"Failed to load product profile {pp_path!r}: {exc}",
+            }
+
+    engine_cfg = resolve_run_config(profile, product_profile, product)
+    legacy_fields = {f.name for f in fields(LegacyRunConfig)}
+    legacy_kwargs = {
+        k: v for k, v in asdict(engine_cfg).items()
+        if k in legacy_fields
+    }
+    legacy_cfg = LegacyRunConfig(**legacy_kwargs)
+
+    run_base = os.path.join(adir, "labview")
+    os.makedirs(run_base, exist_ok=True)
+    before_entries = set(os.listdir(run_base))
+
+    report = await asyncio.to_thread(run_labview_flow, legacy_cfg, run_base)
+
+    after_entries = set(os.listdir(run_base))
+    new_entries = sorted(after_entries - before_entries)
+    run_dir = os.path.join(run_base, new_entries[-1]) if new_entries else run_base
+
+    result = {
+        "success": report.success,
+        "profile": profile.name,
+        "product": profile.product,
+        "band": profile.band,
+        "mode": profile.mode,
+        "steps_completed": len(report.steps),
+        "error": report.error,
+        "artifacts_dir": run_dir,
+    }
+    if report.finish_result:
+        result["finish"] = report.finish_result
+
+    _save_artifact(f"labview_profile_{profile.band}_{_ts()}.json", result, adir)
     return result

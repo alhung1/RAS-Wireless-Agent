@@ -23,15 +23,35 @@ for h, t, w, ht, r in wins:
     print(f"Closing: {t!r} (hwnd={h})")
     close_window(h)
 
+print("Killing visible LabVIEW crash reporters...")
+subprocess.run(
+    [
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        "Get-Process | Where-Object { $_.MainWindowTitle -like '*Crash Reporter*' } | Stop-Process -Force",
+    ],
+    capture_output=True,
+    text=True,
+)
+
 time.sleep(5.0)
 
 wins2 = _enum_lv_windows()
 if wins2:
-    print(f"Still {len(wins2)} windows, killing process...")
-    os.system('taskkill /IM 480.000.v2.03.exe /F')
-    time.sleep(3.0)
+    print(f"Still {len(wins2)} windows after close attempt:")
+    for h, t, w, ht, r in wins2:
+        print(f"  lingering hwnd={h} title={t!r}")
 else:
-    print("All LabVIEW windows closed")
+    print("All visible LabVIEW windows closed")
+
+print("Killing lingering LabVIEW process tree...")
+subprocess.run(
+    ["taskkill", "/IM", "480.000.v2.03.exe", "/F", "/T"],
+    capture_output=True,
+    text=True,
+)
+time.sleep(3.0)
 
 exe = r"C:\480.builds\v2.03\480.000.v2.03.exe"
 if not os.path.isfile(exe):

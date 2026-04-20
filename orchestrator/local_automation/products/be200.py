@@ -271,12 +271,15 @@ class BE200Adapter(ProductBase):
     ) -> "VerificationSpec | None":
         from orchestrator.local_automation.steps.step_result import VerificationSpec
         return VerificationSpec(
-            ocr_region=(0, 0, 1288, 1040),
+            ocr_region=(292, 318, 230, 34),
             expected_text=ap_name,
             title_hint="400 600 AP",
-            ocr_psm=6,
-            ocr_scale_factor=1,
-            ocr_invert=False,
+            ocr_psm=7,
+            ocr_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+            ocr_scale_factor=5,
+            ocr_threshold=120,
+            ocr_invert=True,
+            ocr_normalize_digits=False,
         )
 
     # --- Recovery hints ---

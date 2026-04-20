@@ -27,6 +27,8 @@ This module provides:
 from __future__ import annotations
 
 import enum
+import os
+import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol
@@ -159,6 +161,7 @@ class BetweenProfilesHook(Protocol):
         self,
         previous_artifacts_dir: str,
         next_profile_name: str,
+        run_config: Any = None,
         dry_run: bool = False,
     ) -> tuple[bool, str]:
         """Return (success, detail_message)."""
@@ -168,6 +171,7 @@ class BetweenProfilesHook(Protocol):
 def noop_hook(
     previous_artifacts_dir: str,
     next_profile_name: str,
+    run_config: Any = None,
     dry_run: bool = False,
 ) -> tuple[bool, str]:
     """No-op hook — always reports ready. Use for dry-run or single-profile."""
@@ -177,6 +181,7 @@ def noop_hook(
 def assert_main_screen_hook(
     previous_artifacts_dir: str,
     next_profile_name: str,
+    run_config: Any = None,
     dry_run: bool = False,
 ) -> tuple[bool, str]:
     """Check that LabVIEW is on the main screen (480 000.vi).
@@ -188,20 +193,24 @@ def assert_main_screen_hook(
     if dry_run:
         return True, "simulated: main screen check skipped (dry-run)"
 
-    # LIVE INTEGRATION -- uncomment when running on 22.8 with LabVIEW:
-    # from orchestrator.local_automation.ui.window_manager import WindowManager
-    # wm = WindowManager()
-    # hwnd = wm.find_window()
-    # if hwnd:
-    #     return True, f"main screen found (hwnd={hwnd})"
-    # return False, "main screen not found"
+    try:
+        from orchestrator.local_automation.ui.window_manager import WindowManager
 
-    return False, "assert_main_screen requires live Windows environment"
+        wm = WindowManager()
+        for _ in range(5):
+            hwnd = wm.find_window()
+            if hwnd:
+                return True, f"main screen found (hwnd={hwnd})"
+            time.sleep(1.5)
+        return False, "main screen not found"
+    except Exception as exc:
+        return False, f"assert_main_screen requires live Windows environment: {exc}"
 
 
 def restart_labview_hook(
     previous_artifacts_dir: str,
     next_profile_name: str,
+    run_config: Any = None,
     dry_run: bool = False,
 ) -> tuple[bool, str]:
     """Kill and restart the LabVIEW executable, then verify main screen.
@@ -213,24 +222,38 @@ def restart_labview_hook(
     if dry_run:
         return True, "simulated: restart skipped (dry-run)"
 
-    # LIVE INTEGRATION -- uncomment when running on 22.8:
-    # import subprocess
-    # from orchestrator.local_automation.ui.window_manager import WindowManager
-    #
-    # subprocess.run(["taskkill", "/f", "/im", "480.000.v2.03.exe"],
-    #                capture_output=True)
-    # time.sleep(3)
-    #
-    # subprocess.Popen([run_config.exe_path], shell=False)
-    # time.sleep(10)
-    #
-    # wm = WindowManager()
-    # hwnd = wm.find_window(retries=5, interval=3)
-    # if hwnd:
-    #     return True, f"restart OK (hwnd={hwnd})"
-    # return False, "restart failed: main window not found"
+    exe_path = getattr(run_config, "exe_path", "") if run_config else ""
+    if not exe_path:
+        return False, "restart requires run_config.exe_path"
 
-    return False, "restart_labview requires live Windows environment"
+    try:
+        subprocess.run(
+            ["taskkill", "/f", "/im", os.path.basename(exe_path)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except Exception:
+        pass
+
+    try:
+        subprocess.Popen([exe_path], shell=False)
+    except Exception as exc:
+        return False, f"restart failed to launch {exe_path!r}: {exc}"
+
+    try:
+        from orchestrator.local_automation.ui.window_manager import WindowManager
+
+        wm = WindowManager()
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline:
+            hwnd = wm.find_window()
+            if hwnd:
+                return True, f"restart OK (hwnd={hwnd})"
+            time.sleep(3.0)
+        return False, "restart failed: main window not found"
+    except Exception as exc:
+        return False, f"restart failed during window verification: {exc}"
 
 
 # Hook registry
@@ -264,6 +287,7 @@ def run_finish_and_handoff(
     initial_files: Optional[set[str]] = None,
     between_hook_name: str = "noop",
     next_profile_name: str = "",
+    run_config: Any = None,
     dry_run: bool = False,
     finish_outcome: Optional[FinishOutcome] = None,
 ) -> HandoffResult:
@@ -318,26 +342,36 @@ def run_finish_and_handoff(
             result.finish_detail = "dry-run: finish wait skipped"
             result.finish_elapsed_sec = 0.0
         else:
-            # LIVE INTEGRATION:
-            # from orchestrator.local_automation.finish_detector import (
-            #     wait_for_finish as _wait, FinishConfig,
-            # )
-            # fr = _wait(finish_config, artifacts_dir, initial_files)
-            # outcome = FinishOutcome(
-            #     finished=fr.finished, method=fr.method,
-            #     elapsed_sec=fr.elapsed_sec, detail=fr.detail,
-            #     timed_out=fr.timed_out, failed_fast=fr.failed_fast,
-            # )
-            # result.phase = classify_finish_outcome(outcome)
-            # result.finish_method = outcome.method
-            # result.finish_elapsed_sec = outcome.elapsed_sec
-            # result.finish_detail = outcome.detail
-            # result.finish_timed_out = outcome.timed_out
-            # result.finish_failed_fast = outcome.failed_fast
+            try:
+                from orchestrator.local_automation.finish_detector import (
+                    FinishConfig,
+                    wait_for_finish as _wait,
+                )
 
-            result.phase = ProfilePhase.FINISH_PASS
-            result.finish_method = "not_integrated"
-            result.finish_detail = "live finish detection not yet integrated"
+                live_finish_cfg = finish_config
+                if live_finish_cfg is None:
+                    live_finish_cfg = FinishConfig()
+                elif isinstance(live_finish_cfg, dict):
+                    live_finish_cfg = FinishConfig(**live_finish_cfg)
+
+                fr = _wait(live_finish_cfg, artifacts_dir, initial_files)
+                outcome = FinishOutcome(
+                    finished=fr.finished,
+                    method=fr.method,
+                    elapsed_sec=fr.elapsed_sec,
+                    detail=fr.detail,
+                    timed_out=fr.timed_out,
+                    failed_fast=fr.failed_fast,
+                )
+                result.phase = classify_finish_outcome(outcome)
+                result.finish_method = outcome.method
+                result.finish_elapsed_sec = outcome.elapsed_sec
+                result.finish_detail = outcome.detail
+                result.finish_timed_out = outcome.timed_out
+                result.finish_failed_fast = outcome.failed_fast
+            except Exception as exc:
+                result.phase = ProfilePhase.FINISH_ARTIFACTS_MISSING
+                result.error = f"Finish detection failed: {exc}"
     else:
         # No finish wait requested — treat engine pass as finish pass
         result.phase = ProfilePhase.FINISH_PASS
@@ -353,7 +387,12 @@ def run_finish_and_handoff(
             extra={"action": "handoff", "step": "between_hook"},
         )
 
-        hook_ok, hook_detail = hook(artifacts_dir, next_profile_name, dry_run=dry_run)
+        hook_ok, hook_detail = hook(
+            artifacts_dir,
+            next_profile_name,
+            run_config=run_config,
+            dry_run=dry_run,
+        )
         if hook_ok:
             result.phase = ProfilePhase.READY_FOR_NEXT_PROFILE
             result.ready_for_next = True
@@ -370,7 +409,10 @@ def run_finish_and_handoff(
                 # Auto-escalate: try restart hook
                 restart_fn = get_hook("restart")
                 restart_ok, restart_detail = restart_fn(
-                    artifacts_dir, next_profile_name, dry_run=dry_run
+                    artifacts_dir,
+                    next_profile_name,
+                    run_config=run_config,
+                    dry_run=dry_run,
                 )
                 result.restart_performed = True
                 result.restart_success = restart_ok
@@ -392,12 +434,13 @@ def run_finish_and_handoff(
 
     elif next_profile_name and result.phase in TERMINAL_FAILURE_PHASES:
         # Finish failed and there's a next profile → abort
+        failed_phase = result.phase
         result.phase = ProfilePhase.MATRIX_ABORTED
         result.ready_for_next = False
         if not result.error:
             result.error = (
                 f"Cannot proceed to '{next_profile_name}': "
-                f"finish phase was {result.phase.value}"
+                f"finish phase was {failed_phase.value}"
             )
 
     elif result.phase == ProfilePhase.FINISH_PASS:

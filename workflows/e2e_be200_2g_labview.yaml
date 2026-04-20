@@ -1,0 +1,64 @@
+name: "E2E Full Flow: RS700 2.4G -> BE200 -> LabVIEW"
+description: >
+  Full single-band automation:
+    1) Configure RS700 2.4G on 22.100
+    2) Wait for BE200 worker on 22.203 to see the SSID
+    3) Connect BE200 with the expected adapter hint and static IP
+    4) Ping-gate the router-facing host
+    5) Run the LabVIEW profile on 22.8
+
+router:
+  base_url: http://192.168.1.1
+  router_control_url: http://192.168.22.100:8081
+  bands:
+    "2.4G":
+      ssid: RFLab2g_BE200
+      password: TestPassBE200!
+      channel: "6"
+      security: wpa2
+
+workers:
+  - url: "http://192.168.22.100:8081"
+    name: relay-22100
+    role: router_service
+  - url: "http://192.168.22.203:8080"
+    name: worker-be200
+    role: wifi_client
+
+labview:
+  profile: profiles/test_matrix/be200_2g.yaml
+
+steps:
+  - action: router_apply
+    description: "Set RS700 2.4G SSID/password/channel"
+
+  - action: wait_ssid_broadcast
+    description: "Scan on 22.203 until 2.4G SSID is visible"
+    target_workers:
+      - worker-be200
+    scan:
+      target_ssid: RFLab2g_BE200
+      timeout_sec: 60
+      poll_interval_sec: 5
+
+  - action: wifi_connect_workers
+    description: "Connect the BE200 worker to 2.4G with static IP"
+    target_workers:
+      - worker-be200
+    connect_band: "2.4G"
+    connect_options:
+      adapter_hint: "Intel(R) Wi-Fi 7 BE200"
+      static_ip: "192.168.1.203"
+      mask: "255.255.255.0"
+
+  - action: ping_gate
+    description: "22.203 must reach the router-facing host"
+    target_workers:
+      - worker-be200
+    ping_gate:
+      host: "192.168.1.100"
+      count: 4
+      timeout_sec: 5
+
+  - action: labview_test
+    description: "Run the LabVIEW throughput profile on the orchestrator"

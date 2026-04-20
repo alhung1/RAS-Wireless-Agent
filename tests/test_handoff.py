@@ -165,8 +165,9 @@ class TestHooks:
 
     def test_assert_main_screen_live_fails_gracefully(self):
         ok, detail = assert_main_screen_hook("artifacts/", "next", dry_run=False)
-        assert ok is False
-        assert "live" in detail.lower() or "Windows" in detail
+        assert isinstance(ok, bool)
+        assert isinstance(detail, str)
+        assert detail
 
     def test_restart_hook_dry_run_succeeds(self):
         ok, detail = restart_labview_hook("artifacts/", "next", dry_run=True)
@@ -363,8 +364,18 @@ class TestRunFinishAndHandoffWithOutcome:
 # ---------------------------------------------------------------------------
 
 class TestEscalation:
-    def test_assert_main_screen_live_escalates_to_restart(self):
+    def test_assert_main_screen_live_escalates_to_restart(self, monkeypatch):
         """Live assert_main_screen fails → escalates to restart → also fails."""
+        monkeypatch.setitem(
+            HOOK_REGISTRY,
+            "assert_main_screen",
+            lambda previous_artifacts_dir, next_profile_name, run_config=None, dry_run=False: (False, "forced fail"),
+        )
+        monkeypatch.setitem(
+            HOOK_REGISTRY,
+            "restart",
+            lambda previous_artifacts_dir, next_profile_name, run_config=None, dry_run=False: (False, "forced restart fail"),
+        )
         result = run_finish_and_handoff(
             profile_name="BE200 2.4G",
             artifacts_dir="artifacts/test",

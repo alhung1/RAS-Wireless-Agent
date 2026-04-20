@@ -44,6 +44,25 @@ _LV_DIGIT_MAP = str.maketrans({
 
 _LV_AMBIGUOUS = {"a": ["9", "4"], "Q": ["0", "9"], "q": ["0", "9"],
                   "G": ["6", "9"], "g": ["9", "6"]}
+_LV_ALNUM_EQUIV = {
+    "0": {"0", "O", "o", "Q", "q"},
+    "1": {"1", "I", "l", "i", "|"},
+    "2": {"2", "Z", "z"},
+    "4": {"4", "A", "a"},
+    "5": {"5", "S", "s"},
+    "6": {"6", "G", "g"},
+    "7": {"7", "T", "t"},
+    "8": {"8", "B", "b"},
+    "9": {"9", "g", "q"},
+    "O": {"O", "o", "0", "Q", "q"},
+    "I": {"I", "l", "i", "1", "|"},
+    "Z": {"Z", "z", "2"},
+    "A": {"A", "a", "4"},
+    "S": {"S", "s", "5"},
+    "G": {"G", "g", "6", "9"},
+    "T": {"T", "t", "7"},
+    "B": {"B", "b", "8"},
+}
 
 
 def _normalize_digits(text: str, expected: str = "") -> str:
@@ -91,6 +110,20 @@ def _normalize_digits(text: str, expected: str = "") -> str:
 
     for i, ch in ambig_positions:
         result[i] = _LV_AMBIGUOUS[ch][0]
+    return "".join(result)
+
+
+def _normalize_to_expected(text: str, expected: str) -> str:
+    """Normalize OCR text against an expected alphanumeric token by position."""
+    if not text or not expected:
+        return text
+    if len(text) != len(expected):
+        return text
+
+    result: list[str] = []
+    for actual_ch, expected_ch in zip(text, expected):
+        allowed = _LV_ALNUM_EQUIV.get(expected_ch, {expected_ch})
+        result.append(expected_ch if actual_ch in allowed else actual_ch)
     return "".join(result)
 
 
@@ -217,11 +250,13 @@ def execute_verification(
             clean = raw.strip()
             if spec.ocr_normalize_digits:
                 clean = _normalize_digits(clean, expected=expected)
+            elif expected:
+                clean = _normalize_to_expected(clean, expected)
             nospace = clean.replace(" ", "")
             match = (expected_nospace.lower() in nospace.lower()
                      or nospace.lower() == expected_nospace.lower())
             if not best_text or match:
-                best_text = raw
+                best_text = clean or raw
                 best_match = match
             if match:
                 break

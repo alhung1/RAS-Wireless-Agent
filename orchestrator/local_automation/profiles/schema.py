@@ -51,6 +51,7 @@ class TestProfile(BaseModel):
     rf_channel_6g: str = Field("0", description="6G RF channel (0 = unused)")
 
     mode: str = Field(..., description="Bandwidth mode (BW20, BW40, ...)")
+    ap_name: str | None = Field(None, description="Override AP name from product profile")
     number_of_pairs: str = Field("0", description="Chariot pairs for 2G/MLO")
     number_of_pairs_5g6g: str = Field("0", description="Chariot pairs for 5G/6G")
 

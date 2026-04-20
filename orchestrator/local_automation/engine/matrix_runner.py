@@ -5,6 +5,7 @@ each, and produces a matrix_summary.json with per-test results.
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import time
@@ -34,10 +35,20 @@ from orchestrator.local_automation.engine.handoff import (
     TERMINAL_FAILURE_PHASES,
     run_finish_and_handoff,
 )
+from orchestrator.local_automation.finish_detector import FinishConfig
 from orchestrator.local_automation.steps.registry import build_default_sequence
 from orchestrator.local_automation.ui.detection import ocr_available
 
 logger = get_logger("matrix_runner")
+
+
+def _snapshot_initial_finish_files(finish_cfg: FinishConfig | None) -> set[str]:
+    if finish_cfg is None or not finish_cfg.result_file_dir:
+        return set()
+    if not os.path.isdir(finish_cfg.result_file_dir):
+        return set()
+    pattern = os.path.join(finish_cfg.result_file_dir, finish_cfg.result_file_glob)
+    return set(glob.glob(pattern))
 
 
 @dataclass
@@ -184,6 +195,12 @@ def run_matrix(
                 pass
 
         run_config = resolve_run_config(profile, product_profile, product_adapter)
+        finish_cfg = None
+        initial_finish_files: set[str] | None = None
+        if run_config.finish_config:
+            finish_cfg = FinishConfig(**run_config.finish_config)
+            if wait_for_finish and not dry_run:
+                initial_finish_files = _snapshot_initial_finish_files(finish_cfg)
 
         run_ad = os.path.join(
             os.path.abspath(artifacts_base),
@@ -282,10 +299,11 @@ def run_matrix(
                 profile_name=profile.name,
                 artifacts_dir=run_ad,
                 wait_for_finish_enabled=wait_for_finish,
-                finish_config=None,  # LIVE: build from profile.finish_detection
-                initial_files=None,
+                finish_config=finish_cfg,
+                initial_files=initial_finish_files,
                 between_hook_name=between_profiles,
                 next_profile_name=next_name,
+                run_config=run_config,
                 dry_run=dry_run,
             )
             entry.handoff = handoff_result

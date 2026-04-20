@@ -27,6 +27,10 @@ from orchestrator.local_automation.ui.coordinates import (
     WINDOW_WIDTH,
     WINDOW_HEIGHT,
 )
+from orchestrator.local_automation.ui.input_helpers import (
+    safe_click,
+    safe_press,
+)
 
 logger = get_logger("ui.window_manager")
 
@@ -35,6 +39,9 @@ kernel32 = ctypes.windll.kernel32
 
 SW_RESTORE = 9
 SW_MINIMIZE = 6
+EXCLUDED_WINDOW_TITLE_SUBSTRINGS = (
+    "crash reporter",
+)
 
 
 @dataclass
@@ -168,12 +175,15 @@ class WindowManager:
             title = buf.value
             if not title:
                 return True
+            title_lower = title.lower()
+            if any(bad in title_lower for bad in EXCLUDED_WINDOW_TITLE_SUBSTRINGS):
+                return True
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             match = False
             if lv_pid and pid.value == lv_pid:
                 match = True
-            elif any(h.lower() in title.lower() for h in hints):
+            elif any(h.lower() in title_lower for h in hints):
                 match = True
             if match:
                 r = get_window_rect(hwnd)
@@ -330,10 +340,15 @@ class WindowManager:
                 time.sleep(0.3)
                 r = get_window_rect(hwnd)
                 w, h = r[2] - r[0], r[3] - r[1]
-                import pyautogui
-                pyautogui.click(r[0] + w - 80, r[1] + h - 50)
+                safe_click(
+                    hwnd,
+                    w - 80,
+                    h - 50,
+                    label="dismiss_popup_click",
+                    ensure_fg_fn=self.force_foreground,
+                )
                 time.sleep(0.5)
-                pyautogui.press("enter")
+                safe_press("enter", label="dismiss_popup_enter")
                 time.sleep(1.0)
             dismissed += 1
         return dismissed
@@ -361,8 +376,13 @@ class WindowManager:
             buf = ctypes.create_unicode_buffer(256)
             user32.GetWindowTextW(hwnd, buf, 256)
             if 80 < w < 300 and 50 < h < 200 and not buf.value:
-                import pyautogui
-                pyautogui.click(r[0] + 50, r[1] + h - 30)
+                safe_click(
+                    hwnd,
+                    50,
+                    h - 30,
+                    label="dismiss_dialog_click",
+                    ensure_fg_fn=self.force_foreground,
+                )
                 time.sleep(0.5)
                 dismissed += 1
             return True

@@ -63,6 +63,59 @@ def force_english_ime() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fail-safe recovery
+# ---------------------------------------------------------------------------
+
+
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+def ensure_mouse_not_corner(
+    hwnd: int | None = None,
+    *,
+    label: str = "",
+) -> None:
+    """Nudge the cursor away from PyAutoGUI fail-safe screen corners."""
+    try:
+        pos = _POINT()
+        if not user32.GetCursorPos(ctypes.byref(pos)):
+            return
+
+        screen_w = max(int(user32.GetSystemMetrics(0)), 1)
+        screen_h = max(int(user32.GetSystemMetrics(1)), 1)
+        corners = {
+            (0, 0),
+            (0, 1),
+            (1, 0),
+            (1, 1),
+            (screen_w - 1, 0),
+            (0, screen_h - 1),
+            (screen_w - 1, screen_h - 1),
+        }
+        if (pos.x, pos.y) not in corners:
+            return
+
+        target_x = min(max(screen_w // 2, 200), screen_w - 2)
+        target_y = min(max(screen_h - 120, 200), screen_h - 2)
+        if hwnd is not None:
+            rect = get_window_rect(hwnd)
+            target_x = min(max(rect[0] + 200, rect[0] + 10), rect[2] - 10)
+            target_y = min(max(rect[3] - 120, rect[1] + 10), rect[3] - 10)
+
+        logger.warning(
+            "Mouse at fail-safe corner (%d,%d) before %s - nudging to (%d,%d)",
+            pos.x, pos.y, label or "input", target_x, target_y,
+            extra={"action": "failsafe_recover", "step": label or "input"},
+        )
+        user32.SetCursorPos(int(target_x), int(target_y))
+        time.sleep(0.05)
+    except Exception as exc:
+        logger.warning("Failed to reposition mouse before %s: %s",
+                       label or "input", exc)
+
+
+# ---------------------------------------------------------------------------
 # Bounds checking
 # ---------------------------------------------------------------------------
 
@@ -138,7 +191,12 @@ def safe_click(
     if ensure_fg_fn:
         ensure_fg_fn(hwnd)
     time.sleep(0.1)
-    pyautogui.click(ax, ay)
+    ensure_mouse_not_corner(hwnd, label=label or "click")
+    try:
+        pyautogui.click(ax, ay)
+    except pyautogui.FailSafeException:
+        ensure_mouse_not_corner(hwnd, label=f"{label or 'click'}_retry")
+        pyautogui.click(ax, ay)
     return True
 
 
@@ -169,7 +227,12 @@ def safe_double_click(
     if ensure_fg_fn:
         ensure_fg_fn(hwnd)
     time.sleep(0.1)
-    pyautogui.doubleClick(ax, ay)
+    ensure_mouse_not_corner(hwnd, label=label or "double_click")
+    try:
+        pyautogui.doubleClick(ax, ay)
+    except pyautogui.FailSafeException:
+        ensure_mouse_not_corner(hwnd, label=f"{label or 'double_click'}_retry")
+        pyautogui.doubleClick(ax, ay)
     return True
 
 
@@ -205,7 +268,12 @@ def safe_triple_click(
     if ensure_fg_fn:
         ensure_fg_fn(hwnd)
     time.sleep(0.1)
-    pyautogui.tripleClick(ax, ay)
+    ensure_mouse_not_corner(hwnd, label=label or "triple_click")
+    try:
+        pyautogui.tripleClick(ax, ay)
+    except pyautogui.FailSafeException:
+        ensure_mouse_not_corner(hwnd, label=f"{label or 'triple_click'}_retry")
+        pyautogui.tripleClick(ax, ay)
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +294,12 @@ def safe_press(
         logger.info("[DRY-RUN] WOULD press key %r (%s)", key, label,
                     extra={"action": "dry_run_press", "step": label})
         return
-    pyautogui.press(key)
+    ensure_mouse_not_corner(label=label or f"press_{key}")
+    try:
+        pyautogui.press(key)
+    except pyautogui.FailSafeException:
+        ensure_mouse_not_corner(label=f"{label or f'press_{key}'}_retry")
+        pyautogui.press(key)
 
 
 def safe_type(
@@ -245,7 +318,12 @@ def safe_type(
                     extra={"action": "dry_run_type", "step": label})
         return
     force_english_ime()
-    pyautogui.typewrite(str(text), interval=interval)
+    ensure_mouse_not_corner(label=label or "type")
+    try:
+        pyautogui.typewrite(str(text), interval=interval)
+    except pyautogui.FailSafeException:
+        ensure_mouse_not_corner(label=f"{label or 'type'}_retry")
+        pyautogui.typewrite(str(text), interval=interval)
 
 
 def safe_hotkey(
@@ -261,7 +339,12 @@ def safe_hotkey(
         logger.info("[DRY-RUN] WOULD hotkey %s (%s)", keys, label,
                     extra={"action": "dry_run_hotkey", "step": label})
         return
-    pyautogui.hotkey(*keys)
+    ensure_mouse_not_corner(label=label or "hotkey")
+    try:
+        pyautogui.hotkey(*keys)
+    except pyautogui.FailSafeException:
+        ensure_mouse_not_corner(label=f"{label or 'hotkey'}_retry")
+        pyautogui.hotkey(*keys)
 
 
 # ---------------------------------------------------------------------------

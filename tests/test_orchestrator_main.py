@@ -31,6 +31,8 @@ from orchestrator.workflow_schema import (
     ScanConfig,
     PingGateConfig,
     AutomationConfig,
+    ConnectOptions,
+    LabviewConfig,
 )
 
 
@@ -256,6 +258,73 @@ async def test_execute_step_preflight_failure():
     assert result["success"] is False
     assert "Pre-flight check failed" in result["error"]
     assert "22.x control path is unreachable" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_execute_step_wifi_connect_workers_respects_target_workers_and_connect_options():
+    """wifi_connect_workers should filter workers and forward connect options.
+
+    Risk covered: ensure workflow YAML fields like target_workers and
+    connect_options are not silently ignored.
+    """
+    workflow = Workflow(
+        name="wifi-connect",
+        router=RouterConfig(
+            bands={"2.4G": BandWifiConfig(ssid="SSID", password="secret", security="wpa2")},
+        ),
+        workers=[
+            WorkerTarget(url="http://192.168.22.100:8081", name="relay", role="router_service"),
+            WorkerTarget(url="http://192.168.22.203:8080", name="be200", role="wifi_client"),
+        ],
+        steps=[],
+    )
+    step = Step(
+        action="wifi_connect_workers",
+        connect_band="2.4G",
+        target_workers=["be200"],
+        connect_options=ConnectOptions(
+            adapter_hint="Intel(R) Wi-Fi 7 BE200",
+            static_ip="192.168.1.203",
+            mask="255.255.255.0",
+        ),
+    )
+
+    with mock.patch("orchestrator.main.preflight_check", AsyncMock(return_value=True)), \
+         mock.patch("orchestrator.main.step_connect_workers", AsyncMock(return_value={"success": True})) as mock_connect:
+        result = await execute_step(step, workflow, {})
+
+    assert result["success"] is True
+    kwargs = mock_connect.await_args.kwargs
+    assert len(kwargs["workers"]) == 1
+    assert kwargs["workers"][0].name == "be200"
+    assert kwargs["connect_options"].adapter_hint == "Intel(R) Wi-Fi 7 BE200"
+    assert kwargs["connect_options"].static_ip == "192.168.1.203"
+    assert kwargs["connect_options"].band == "2.4G"
+
+
+@pytest.mark.asyncio
+async def test_execute_step_labview_profile_uses_labview_config():
+    """labview_test should delegate to the profile-driven LabVIEW runner.
+
+    Risk covered: the workflow engine must support the local LabVIEW leg of
+    the end-to-end automation instead of stopping at router/worker orchestration.
+    """
+    workflow = Workflow(name="labview-workflow", steps=[])
+    step = Step(
+        action="labview_test",
+        labview=LabviewConfig(profile="profiles/test_matrix/be200_2g.yaml"),
+    )
+
+    with mock.patch("orchestrator.main.preflight_check", AsyncMock(return_value=True)), \
+         mock.patch(
+             "orchestrator.main.step_run_labview_profile",
+             AsyncMock(return_value={"success": True, "profile": "BE200 2.4G Standard"}),
+         ) as mock_labview:
+        result = await execute_step(step, workflow, {})
+
+    assert result["success"] is True
+    assert result["profile"] == "BE200 2.4G Standard"
+    assert mock_labview.await_args.kwargs["profile_path"] == "profiles/test_matrix/be200_2g.yaml"
 
 
 @pytest.mark.asyncio

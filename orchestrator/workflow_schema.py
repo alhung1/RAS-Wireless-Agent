@@ -50,6 +50,17 @@ class RouterConfig(BaseModel):
 class WorkerTarget(BaseModel):
     url: str
     name: Optional[str] = None
+    role: Optional[str] = None
+
+
+class ConnectOptions(BaseModel):
+    interface: Optional[str] = None
+    adapter_hint: Optional[str] = None
+    static_ip: Optional[str] = None
+    mask: str = "255.255.255.0"
+    auth: Optional[str] = None
+    cipher: Optional[str] = None
+    band: Optional[str] = None
 
 
 class ScanConfig(BaseModel):
@@ -72,6 +83,16 @@ class AutomationConfig(BaseModel):
     target_workers: Optional[list[str]] = None
 
 
+class LabviewConfig(BaseModel):
+    profile: Optional[str] = None
+    profiles_root: Optional[str] = None
+    band: Optional[str] = None
+    rf_channels: dict[str, str] = Field(default_factory=dict)
+    user_information: str = ""
+    timeout_seconds: int = 14400
+    finish_config: Optional[dict[str, Any]] = None
+
+
 class Step(BaseModel):
     action: str
     description: Optional[str] = None
@@ -85,6 +106,9 @@ class Step(BaseModel):
     ping_gate: Optional[PingGateConfig] = None
     automation: Optional[AutomationConfig] = None
     connect_band: Optional[str] = None
+    connect_options: Optional[ConnectOptions] = None
+    target_workers: Optional[list[str]] = None
+    labview: Optional[LabviewConfig] = None
 
 
 class Workflow(BaseModel):
@@ -93,6 +117,7 @@ class Workflow(BaseModel):
     wifi: Optional[WifiConfig] = None
     router: Optional[RouterConfig] = None
     workers: Optional[list[WorkerTarget]] = None
+    labview: Optional[LabviewConfig] = None
     steps: list[Step]
 
 

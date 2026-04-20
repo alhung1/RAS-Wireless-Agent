@@ -25,6 +25,14 @@ def main():
     parser.add_argument("--continue-on-failure", action="store_true",
                         help="Continue to next profile after failure")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--wait-for-finish", action="store_true",
+                        help="Wait for finish detection after each passing profile")
+    parser.add_argument(
+        "--between-profiles",
+        choices=["noop", "assert_main_screen", "restart"],
+        default="noop",
+        help="How to prepare LabVIEW between passing profiles",
+    )
     parser.add_argument("--artifacts", default="artifacts/matrix")
     parser.add_argument("--profiles-root", default=None)
     args = parser.parse_args()
@@ -42,6 +50,8 @@ def main():
         print(f"  {p}")
     print(f"Stop on failure: {not args.continue_on_failure}")
     print(f"Dry run: {args.dry_run}")
+    print(f"Wait for finish: {args.wait_for_finish}")
+    print(f"Between profiles: {args.between_profiles}")
     print()
 
     summary = run_matrix(
@@ -50,6 +60,8 @@ def main():
         stop_on_failure=not args.continue_on_failure,
         dry_run=args.dry_run,
         profiles_root=args.profiles_root,
+        wait_for_finish=args.wait_for_finish,
+        between_profiles=args.between_profiles,
     )
 
     print()

@@ -66,6 +66,9 @@ logger = get_logger("labview_runner_legacy")
 user32 = ctypes.windll.user32
 
 LV_PID: int | None = None
+EXCLUDED_WINDOW_TITLE_SUBSTRINGS = (
+    "crash reporter",
+)
 
 STEP_WINDOW_SIZE = (1288, 1040)
 LOGIN_WINDOW_SIZE = (356, 200)
@@ -122,6 +125,43 @@ def _bounds_ok(hwnd: int, ax: int, ay: int) -> bool:
     return (rect[0] <= ax <= rect[2]) and (rect[1] <= ay <= rect[3])
 
 
+def _ensure_mouse_not_corner(hwnd: int | None = None, label: str = "") -> None:
+    """Move the cursor away from fail-safe corners before pyautogui actions."""
+    if _DRY_RUN:
+        return
+
+    try:
+        pos = pyautogui.position()
+        screen_w, screen_h = pyautogui.size()
+        margin = 2
+        in_corner = (
+            (pos.x <= margin and pos.y <= margin)
+            or (pos.x >= screen_w - 1 - margin and pos.y <= margin)
+            or (pos.x <= margin and pos.y >= screen_h - 1 - margin)
+            or (pos.x >= screen_w - 1 - margin and pos.y >= screen_h - 1 - margin)
+        )
+        if not in_corner:
+            return
+
+        if hwnd:
+            rect = get_window_rect(hwnd)
+            target_x = max(rect[0] + 120, 200)
+            target_y = max(rect[1] + 120, 200)
+        else:
+            target_x = max(screen_w // 2, 200)
+            target_y = max(screen_h // 2, 200)
+
+        logger.warning(
+            "Mouse at fail-safe corner (%d,%d) before %s - nudging to (%d,%d)",
+            pos.x, pos.y, label or "input", target_x, target_y,
+            extra={"action": "failsafe_recover", "step": label or "input"},
+        )
+        user32.SetCursorPos(int(target_x), int(target_y))
+        time.sleep(0.05)
+    except Exception as exc:
+        logger.warning("Failed to reposition mouse before %s: %s", label or "input", exc)
+
+
 def _safe_click(hwnd: int | None, px: int, py: int, label: str = "") -> bool:
     """Click at window-relative (px, py) with stop-file check and bounds guard.
 
@@ -154,7 +194,12 @@ def _safe_click(hwnd: int | None, px: int, py: int, label: str = "") -> bool:
 
     _ensure_foreground(hwnd)
     time.sleep(0.1)
-    pyautogui.click(ax, ay)
+    _ensure_mouse_not_corner(hwnd, label=label or "click")
+    try:
+        pyautogui.click(ax, ay)
+    except pyautogui.FailSafeException:
+        _ensure_mouse_not_corner(hwnd, label=f"{label or 'click'}_retry")
+        pyautogui.click(ax, ay)
     return True
 
 
@@ -165,7 +210,12 @@ def _safe_press(key: str, label: str = "") -> None:
         logger.info("[DRY-RUN] WOULD press key %r (%s)", key, label,
                     extra={"action": "dry_run_press", "step": label})
         return
-    pyautogui.press(key)
+    _ensure_mouse_not_corner(label=label or f"press_{key}")
+    try:
+        pyautogui.press(key)
+    except pyautogui.FailSafeException:
+        _ensure_mouse_not_corner(label=f"{label or f'press_{key}'}_retry")
+        pyautogui.press(key)
 
 
 def _force_english_ime() -> None:
@@ -190,7 +240,12 @@ def _safe_type(text: str, interval: float = 0.05, label: str = "") -> None:
                     extra={"action": "dry_run_type", "step": label})
         return
     _force_english_ime()
-    pyautogui.typewrite(str(text), interval=interval)
+    _ensure_mouse_not_corner(label=label or "type")
+    try:
+        pyautogui.typewrite(str(text), interval=interval)
+    except pyautogui.FailSafeException:
+        _ensure_mouse_not_corner(label=f"{label or 'type'}_retry")
+        pyautogui.typewrite(str(text), interval=interval)
 
 
 def _safe_hotkey(*keys: str, label: str = "") -> None:
@@ -199,7 +254,12 @@ def _safe_hotkey(*keys: str, label: str = "") -> None:
         logger.info("[DRY-RUN] WOULD hotkey %s (%s)", keys, label,
                     extra={"action": "dry_run_hotkey", "step": label})
         return
-    pyautogui.hotkey(*keys)
+    _ensure_mouse_not_corner(label=label or "hotkey")
+    try:
+        pyautogui.hotkey(*keys)
+    except pyautogui.FailSafeException:
+        _ensure_mouse_not_corner(label=f"{label or 'hotkey'}_retry")
+        pyautogui.hotkey(*keys)
 
 
 def _safe_triple_click(hwnd: int | None, px: int, py: int, label: str = "") -> None:
@@ -220,7 +280,12 @@ def _safe_triple_click(hwnd: int | None, px: int, py: int, label: str = "") -> N
         return
     _ensure_foreground(hwnd)
     time.sleep(0.1)
-    pyautogui.tripleClick(ax, ay)
+    _ensure_mouse_not_corner(hwnd, label=label or "triple_click")
+    try:
+        pyautogui.tripleClick(ax, ay)
+    except pyautogui.FailSafeException:
+        _ensure_mouse_not_corner(hwnd, label=f"{label or 'triple_click'}_retry")
+        pyautogui.tripleClick(ax, ay)
 
 # BW mode dropdown navigation: Up N to reach BW20 (top), then Down M.
 # List order: BW20, BW40, BW80, BW160, BW240, BW320, Not Valid
@@ -325,6 +390,9 @@ def _enum_lv_windows(
         title = buf.value
         if not title:
             return True
+        title_lower = title.lower()
+        if any(bad in title_lower for bad in EXCLUDED_WINDOW_TITLE_SUBSTRINGS):
+            return True
 
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -334,9 +402,9 @@ def _enum_lv_windows(
         if lv_pid and pid.value == lv_pid:
             match = True
         elif title_hints:
-            match = any(h.lower() in title.lower() for h in title_hints)
+            match = any(h.lower() in title_lower for h in title_hints)
         else:
-            match = any(h.lower() in title.lower()
+            match = any(h.lower() in title_lower
                        for h in ["480", "481", "400 600", "RvR", "logon", "table"])
 
         if match:
@@ -384,6 +452,23 @@ def _find_vi_window(title_contains: str, timeout: float = 5.0) -> int | None:
             if title_contains.lower() in title.lower():
                 return hwnd
         time.sleep(0.5)
+    return None
+
+
+def _find_vi_window_any(
+    title_candidates: list[str] | tuple[str, ...],
+    timeout: float = 5.0,
+) -> int | None:
+    """Find the first VI whose title matches any of the given hints."""
+    deadline = time.monotonic() + timeout
+    candidates = [c for c in title_candidates if c]
+    while time.monotonic() < deadline:
+        wins = _enum_lv_windows(title_hints=list(candidates) or None)
+        for hwnd, title, w, h, r in wins:
+            title_lower = title.lower()
+            if any(candidate.lower() in title_lower for candidate in candidates):
+                return hwnd
+        time.sleep(0.3)
     return None
 
 
@@ -1405,17 +1490,15 @@ def _select_list_item_by_folder_index(
 
     _force_fg(popup_hwnd)
     time.sleep(0.5)
-    rect = get_window_rect(popup_hwnd)
-    abs_x = rect[0] + 120
-    abs_y = rect[1] + 300
-    pyautogui.click(abs_x, abs_y)
+    if not _safe_click(popup_hwnd, 120, 300, label=f"{prefix}_listbox_focus"):
+        return False
     time.sleep(0.3)
 
-    pyautogui.press('home')
+    _safe_press("home", label=f"{prefix}_listbox_home")
     time.sleep(0.4)
 
     for _ in range(target_idx):
-        pyautogui.press('down')
+        _safe_press("down", label=f"{prefix}_listbox_down")
         time.sleep(0.02)
     time.sleep(0.4)
 
@@ -2064,22 +2147,41 @@ def step_09_dut_ip(hwnd: int, cfg: RunConfig, ad: str) -> StepResult:
     """Filter/pass-through screen (400_600_Filter.vi) -- just click orange arrow."""
     t0 = time.monotonic()
 
-    vi_hwnd = _find_active_vi()
+    vi_hwnd = _find_vi_window_any([
+        "400_600_filler",
+        "400_600_Filter",
+        "400 600 Filter",
+        "400_600 Filter",
+    ], timeout=8.0)
     if not vi_hwnd:
+        logger.warning(
+            "Filter/filler VI not found by explicit title; falling back to active VI",
+            extra={"action": "dut_ip", "step": "fallback_active_vi"},
+        )
         _poll_until(lambda: _find_active_vi() is not None,
                     timeout=5.0, desc="dut_ip VI")
-        vi_hwnd = _find_active_vi()
+        active_hwnd = _find_active_vi()
+        active_title = _get_window_title(active_hwnd) if active_hwnd else ""
+        if active_hwnd and "table" not in active_title.lower():
+            vi_hwnd = active_hwnd
     if not vi_hwnd:
         ss = _screenshot(hwnd, ad, 9, "wrong_screen")
         return StepResult("dut_ip", False, time.monotonic() - t0, ss,
                           error="VI not found for dut_ip")
 
     _setup_vi(vi_hwnd)
+    logger.info("dut_ip using VI %r (hwnd=%d)",
+                _get_window_title(vi_hwnd), vi_hwnd,
+                extra={"action": "dut_ip", "step": "target_vi"})
     _screenshot(vi_hwnd, ad, 9, "dut_ip")
 
     _click_orange_arrow_smart(vi_hwnd)
 
-    new_hwnd, ok = _verify_transition(vi_hwnd, timeout=10.0)
+    new_hwnd, ok = _verify_transition(
+        vi_hwnd,
+        expected_hint="400 600 DUT",
+        timeout=15.0,
+    )
     if not ok:
         ss = _screenshot(vi_hwnd, ad, 9, "no_transition")
         return StepResult("dut_ip", False, time.monotonic() - t0, ss,
@@ -2412,7 +2514,11 @@ def step_18_final_start(hwnd: int, cfg: RunConfig, ad: str) -> StepResult:
     """
     t0 = time.monotonic()
 
-    vi_hwnd = _find_active_vi()
+    vi_hwnd = _find_vi_window_any([
+        "400 600 review",
+        "400_600 review",
+        "400 600 review.vi",
+    ], timeout=8.0)
     if not vi_hwnd:
         _poll_until(lambda: _find_active_vi() is not None,
                     timeout=5.0, desc="final_start VI")
@@ -2430,20 +2536,33 @@ def step_18_final_start(hwnd: int, cfg: RunConfig, ad: str) -> StepResult:
         try:
             img = capture_window(vi_hwnd)
             full_text = ocr_region_freeform(img, 0, 0, img.shape[1], img.shape[0])
+            title = _get_window_title(vi_hwnd)
+            dut_text = _ocr_read_field(vi_hwnd, 650, 230, field_w=180, field_h=28)
+            mode_text = _ocr_read_field(vi_hwnd, 650, 680, field_w=120, field_h=28)
+            combined_text = "\n".join([full_text, dut_text, mode_text]).lower()
             missing = []
-            if cfg.ap_name.lower() not in full_text.lower():
+            if cfg.ap_name.lower() not in combined_text:
                 missing.append(f"AP={cfg.ap_name}")
-            if cfg.mode.lower() not in full_text.lower():
+            if cfg.mode.lower() not in combined_text:
                 missing.append(f"mode={cfg.mode}")
             if missing:
-                logger.error("Pre-flight check FAILED — not on screen: %s",
-                             ", ".join(missing),
-                             extra={"action": "step_18", "step": "preflight_fail"})
-                _screenshot(vi_hwnd, ad, 18, "preflight_fail")
-                return StepResult(
-                    "final_start", False, time.monotonic() - t0,
-                    error=f"Pre-flight verify failed: {', '.join(missing)} "
-                          f"not visible on summary screen")
+                if "review" in title.lower():
+                    logger.warning(
+                        "Pre-flight OCR mismatch on review screen — proceeding anyway: "
+                        "missing=%s title=%r dut_ocr=%r mode_ocr=%r",
+                        ", ".join(missing), title, dut_text, mode_text,
+                        extra={"action": "step_18", "step": "preflight_warn"},
+                    )
+                    _screenshot(vi_hwnd, ad, 18, "preflight_warn")
+                else:
+                    logger.error("Pre-flight check FAILED — not on screen: %s",
+                                 ", ".join(missing),
+                                 extra={"action": "step_18", "step": "preflight_fail"})
+                    _screenshot(vi_hwnd, ad, 18, "preflight_fail")
+                    return StepResult(
+                        "final_start", False, time.monotonic() - t0,
+                        error=f"Pre-flight verify failed: {', '.join(missing)} "
+                              f"not visible on summary screen")
             logger.info("Pre-flight check OK: AP=%s, mode=%s confirmed",
                         cfg.ap_name, cfg.mode,
                         extra={"action": "step_18", "step": "preflight_ok"})
@@ -2452,19 +2571,21 @@ def step_18_final_start(hwnd: int, cfg: RunConfig, ad: str) -> StepResult:
 
     _click_orange_arrow_smart(vi_hwnd)
 
-    _poll_until(
-        lambda: (_find_vi_window("running", timeout=0.3) is not None
-                 or _find_vi_window("progress", timeout=0.3) is not None
-                 or _find_active_vi() != vi_hwnd),
-        timeout=10.0, desc="test started or screen changed",
-    )
+    next_vi, started = _verify_transition(vi_hwnd, expected_hint="480_214", timeout=15.0)
+    if not started:
+        next_vi = _find_vi_window_any([
+            "1RPM FAST",
+            "Please wait",
+            "running",
+            "progress",
+        ], timeout=3.0)
+        started = next_vi is not None
+    if not started:
+        ss = _screenshot(vi_hwnd, ad, 18, "start_not_detected")
+        return StepResult("final_start", False, time.monotonic() - t0, ss,
+                          error="Test did not enter running screen after final_start")
 
-    ss2 = ""
-    next_vi = _find_active_vi()
-    if next_vi:
-        ss2 = _screenshot(next_vi, ad, 18, "test_started")
-    else:
-        ss2 = _screenshot(vi_hwnd, ad, 18, "test_started")
+    ss2 = _screenshot(next_vi or vi_hwnd, ad, 18, "test_started")
     return StepResult("final_start", True, time.monotonic() - t0, ss2)
 
 

@@ -232,8 +232,6 @@ def navigate_listbox_to_item(
     Reads .txt files in *folder_path* to compute the index.
     Returns True if the target was found and navigated to.
     """
-    import pyautogui
-
     items = build_listbox_items(folder_path)
     target_upper = target_name.upper()
     if target_upper not in items:
@@ -256,17 +254,20 @@ def navigate_listbox_to_item(
     wm.force_foreground(popup_hwnd)
     time.sleep(0.5)
 
-    rect = wm.get_rect(popup_hwnd)
-    abs_x = rect[0] + 120
-    abs_y = rect[1] + 300
-    pyautogui.click(abs_x, abs_y)
+    safe_click(
+        popup_hwnd,
+        120,
+        300,
+        label="listbox_focus",
+        ensure_fg_fn=wm.force_foreground,
+    )
     time.sleep(0.3)
 
-    pyautogui.press("home")
+    safe_press("home", label="listbox_home")
     time.sleep(0.4)
 
     for _ in range(target_idx):
-        pyautogui.press("down")
+        safe_press("down", label="listbox_down")
         time.sleep(0.02)
     time.sleep(0.4)
 

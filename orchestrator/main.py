@@ -23,6 +23,8 @@ from orchestrator.actions.e2e_steps import (
     step_connect_workers,
     step_ping_gate,
     step_run_automation,
+    step_run_labview_profile,
+    step_run_labview_test,
     build_final_report,
 )
 from orchestrator.utils.health import preflight_check
@@ -30,6 +32,9 @@ from orchestrator.workflow_schema import (
     PingGateConfig,
     ScanConfig,
     AutomationConfig,
+    ConnectOptions,
+    LabviewConfig,
+    WorkerTarget,
 )
 
 logger = get_logger("orchestrator")
@@ -42,6 +47,63 @@ def load_workflow(path: str) -> Workflow:
 
 
 SAFE_ACTIONS = {"wait"}
+
+
+def _select_workers(
+    step: Step,
+    workflow: Workflow,
+) -> list[WorkerTarget]:
+    """Resolve the effective worker list for a step.
+
+    Priority:
+      1. Inline ``step.workers``
+      2. Workflow-level ``workers``
+      3. Optional ``target_workers`` filter applied to the chosen list
+
+    ``target_workers`` may contain worker URLs, names, or roles.
+    """
+    workers = list(step.workers or workflow.workers or [])
+    if not workers or not step.target_workers:
+        return workers
+
+    selectors = {s.lower() for s in step.target_workers}
+    selected: list[WorkerTarget] = []
+    for worker in workers:
+        candidates = {worker.url.lower()}
+        if worker.name:
+            candidates.add(worker.name.lower())
+        if worker.role:
+            candidates.add(worker.role.lower())
+        if selectors & candidates:
+            selected.append(worker)
+    return selected
+
+
+async def _execute_labview_step(
+    cfg: LabviewConfig,
+    artifacts_dir: str = "artifacts",
+) -> dict[str, Any]:
+    if cfg.profile:
+        return await step_run_labview_profile(
+            profile_path=cfg.profile,
+            profiles_root=cfg.profiles_root,
+            artifacts_dir=artifacts_dir,
+        )
+
+    if not cfg.band:
+        return {
+            "success": False,
+            "error": "LabVIEW config requires either 'profile' or 'band'",
+        }
+
+    return await step_run_labview_test(
+        band=cfg.band,
+        rf_channels=cfg.rf_channels,
+        user_information=cfg.user_information,
+        timeout_seconds=cfg.timeout_seconds,
+        finish_config=cfg.finish_config,
+        artifacts_dir=artifacts_dir,
+    )
 
 
 async def execute_step(
@@ -86,7 +148,7 @@ async def execute_step(
     # wait_ssid_broadcast -- scan workers until SSID visible
     # ------------------------------------------------------------------
     elif step.action == "wait_ssid_broadcast":
-        workers = step.workers or workflow.workers
+        workers = _select_workers(step, workflow)
         if not workers:
             return {"success": False, "error": "No workers configured"}
         scan_cfg = step.scan or ScanConfig(target_ssid="RFLabTest")
@@ -96,7 +158,7 @@ async def execute_step(
     # wifi_connect_workers -- parallel Wi-Fi connect on all workers
     # ------------------------------------------------------------------
     elif step.action == "wifi_connect_workers":
-        workers = step.workers or workflow.workers
+        workers = _select_workers(step, workflow)
         router_cfg = step.router or workflow.router
         if not workers or not router_cfg:
             return {"success": False, "error": "Missing workers or router config"}
@@ -104,18 +166,22 @@ async def execute_step(
         band = router_cfg.bands.get(band_key)
         if not band:
             return {"success": False, "error": f"Band {band_key} not in router config"}
+        connect_options = step.connect_options or ConnectOptions(band=band_key)
+        if not connect_options.band:
+            connect_options.band = band_key
         return await step_connect_workers(
             workers=workers,
             ssid=band.ssid,
             password=band.password,
             security=band.security,
+            connect_options=connect_options,
         )
 
     # ------------------------------------------------------------------
     # ping_gate -- all workers must reach target host
     # ------------------------------------------------------------------
     elif step.action == "ping_gate":
-        workers = step.workers or workflow.workers
+        workers = _select_workers(step, workflow)
         if not workers:
             return {"success": False, "error": "No workers configured"}
         ping_cfg = step.ping_gate or PingGateConfig()
@@ -125,7 +191,7 @@ async def execute_step(
     # run_automation -- launch and poll automation jobs
     # ------------------------------------------------------------------
     elif step.action == "run_automation":
-        workers = step.workers or workflow.workers
+        workers = _select_workers(step, workflow)
         if not workers:
             return {"success": False, "error": "No workers configured"}
         auto_cfg = step.automation
@@ -134,11 +200,23 @@ async def execute_step(
         return await step_run_automation(workers, auto_cfg)
 
     # ------------------------------------------------------------------
+    # LabVIEW local automation
+    # ------------------------------------------------------------------
+    elif step.action in {"labview_test", "run_labview_test"}:
+        labview_cfg = step.labview or workflow.labview
+        if not labview_cfg:
+            return {"success": False, "error": "Missing LabVIEW config"}
+        return await _execute_labview_step(
+            labview_cfg,
+            artifacts_dir=os.path.join("artifacts", "workflow_labview"),
+        )
+
+    # ------------------------------------------------------------------
     # Legacy: wifi_connect_remote
     # ------------------------------------------------------------------
     elif step.action == "wifi_connect_remote":
         wifi_cfg = step.wifi or workflow.wifi
-        workers = step.workers or workflow.workers
+        workers = _select_workers(step, workflow)
         if not wifi_cfg or not workers:
             return {"success": False, "error": "Missing wifi or workers config"}
         worker_urls = [w.url for w in workers]

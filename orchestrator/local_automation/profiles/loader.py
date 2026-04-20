@@ -122,6 +122,8 @@ def resolve_run_config(
         "test_type": test_profile.test_type,
         "timeout_seconds": test_profile.timeout_seconds,
     }
+    if test_profile.ap_name:
+        profile_fields["ap_name"] = test_profile.ap_name
     if test_profile.user_information:
         profile_fields["user_information"] = test_profile.user_information
     if test_profile.attenuation:
